@@ -1,0 +1,15 @@
+# dot files
+/.settings
+/.eide/log
+/.eide.usr.ctx.json
+
+# build output
+/build/
+compile_commands.json
+
+# devcontainer
+/.devcontainer/.zsh_history
+
+# eide template
+*.ept
+*.eide-template

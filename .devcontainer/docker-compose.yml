@@ -1,0 +1,19 @@
+services:
+    concentration-v2-develop:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        image: concentration-v2-develop:latest
+        network_mode: host
+        device_cgroup_rules:
+            - "c 189:* rw"
+        init: true
+        command: /bin/sh -c "while sleep 1000; do :; done"
+        working_dir: /home/ubuntu
+        volumes:
+            - type: bind
+              source: /dev
+              target: /dev
+            - type: bind
+              source: ..
+              target: /workspaces/Concentration_V2

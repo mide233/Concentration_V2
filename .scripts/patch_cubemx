@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Normalize the STM32CubeMX generated build files for this project.
+
+STM32CubeMX regenerates ``cmake/stm32cubemx/CMakeLists.txt`` and
+``CMakePresets.json`` every time the code is generated, while
+``CMakeLists.txt`` at the project root is written only once.  Run this
+script after every CubeMX code generation to restore the project layout:
+
+    python3 .scripts/patch_cubemx
+
+The script is idempotent and keeps the STM32CubeMX marker comment and the
+line endings of the generated file untouched.
+"""
+
+import argparse
+import json
+import pathlib
+
+# Files produced by STM32CubeMX that are not used by this project.
+STALE_FILES = [
+    "cmake/starm-clang.cmake",
+]
+
+CUBEMX_CMAKE = pathlib.Path("cmake/stm32cubemx/CMakeLists.txt")
+
+# Canonical presets, so a CubeMX regeneration cannot silently drop them.
+PRESETS = {
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "hidden": True,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+            },
+        },
+        {
+            "name": "Debug",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+            },
+        },
+        {
+            "name": "Release",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+            },
+        },
+    ],
+    "buildPresets": [
+        {"name": "Debug", "configurePreset": "Debug"},
+        {"name": "Release", "configurePreset": "Release"},
+    ],
+}
+
+
+def patch_presets(root: pathlib.Path) -> None:
+    path = root / "CMakePresets.json"
+    path.write_text(json.dumps(PRESETS, indent=4) + "\n", encoding="utf-8")
+    print(f"wrote {path.relative_to(root)}")
+
+
+def patch_cubemx_cmake(root: pathlib.Path) -> None:
+    path = root / CUBEMX_CMAKE
+    if not path.exists():
+        print(f"skip {CUBEMX_CMAKE} (missing)")
+        return
+
+    text = path.read_text(encoding="utf-8")
+    # The CubeMX file lives two directories below the project root; address the
+    # sources relative to the project root so the file stays independent of its
+    # own location.
+    patched = text.replace("${CMAKE_CURRENT_SOURCE_DIR}/../../", "${CMAKE_SOURCE_DIR}/")
+    if patched != text:
+        path.write_text(patched, encoding="utf-8")
+        print(f"normalized {CUBEMX_CMAKE}")
+
+    if "STM32_Drivers_Src" not in patched:
+        print(f"warning: unexpected content in {CUBEMX_CMAKE}")
+
+
+def remove_stale_files(root: pathlib.Path) -> None:
+    for relative in STALE_FILES:
+        path = root / relative
+        if path.exists():
+            path.unlink()
+            print(f"removed stale {relative}")
+
+
+def check_user_sources(root: pathlib.Path) -> None:
+    cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+    if "Concentration_Conversion.c" not in cmake:
+        print(
+            "warning: CMakeLists.txt does not list the user sources; "
+            "STM32CubeMX may have overwritten it."
+        )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--project-root",
+        default=pathlib.Path(__file__).resolve().parent.parent,
+        type=pathlib.Path,
+        help="Project root (defaults to the parent of .scripts/)",
+    )
+    args = parser.parse_args()
+    root = args.project_root.resolve()
+
+    remove_stale_files(root)
+    patch_cubemx_cmake(root)
+    patch_presets(root)
+    check_user_sources(root)
+
+
+if __name__ == "__main__":
+    main()

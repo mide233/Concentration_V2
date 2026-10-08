@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (OpenOCD / ST-Link)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "build/Debug/Concentration_V2.elf",
+            "servertype": "openocd",
+            "configFiles": [
+                "tools/openocd.cfg"
+            ],
+            "device": "STM32F103C8",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "cmake: build (Debug)"
+        },
+        {
+            "name": "Attach (OpenOCD / ST-Link)",
+            "type": "cortex-debug",
+            "request": "attach",
+            "cwd": "${workspaceFolder}",
+            "executable": "build/Debug/Concentration_V2.elf",
+            "servertype": "openocd",
+            "configFiles": [
+                "tools/openocd.cfg"
+            ],
+            "device": "STM32F103C8"
+        }
+    ]
+}
