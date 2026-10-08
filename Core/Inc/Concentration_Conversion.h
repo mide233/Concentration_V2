@@ -1,5 +1,5 @@
-#ifndef __Concentration_Conversion_H__
-#define __Concentration_Conversion_H__
+#ifndef CONCENTRATION_CONVERSION_H
+#define CONCENTRATION_CONVERSION_H
 
 #include <stdint.h>
 #include <stdbool.h>

@@ -8,7 +8,10 @@
 #include "math.h"
 #include "stm32f1xx_hal.h"
 
-#define CONVERSION_DATA_ADDR 0x0800FC00 // 持久化数据所在 Flash 页的起始地址
+#define CONVERSION_DATA_ADDR 0x0800FC00     // 持久化数据所在 Flash 页的起始地址
+#define CONVERSION_MAGIC 0x12345678         // 持久化数据 magic 校验值（值不可变）
+#define CONVERSION_DEFAULT_RAW_VALUE 0.3f   // magic 无效时返回的默认 Raw_value
+#define CONVERSION_DEFAULT_UVLIGHT_LEVEL 70 // magic 无效时返回的默认 UVlight_level
 
 /*
  * 功能：从 Flash 读取转换参数
@@ -19,14 +22,14 @@
 uint8_t Read_Conversion_Value(Conversion_value_t *out)
 {
     StoredConversion_t *stored = (StoredConversion_t *)CONVERSION_DATA_ADDR;
-    if (stored->magic == 0x12345678) // magic 校验通过
+    if (stored->magic == CONVERSION_MAGIC) // magic 校验通过
     {
         *out = stored->data;
         return 1;
     }
     // magic 无效：返回默认值（数值可按需求调整）
-    out->Raw_value = 0.3f;
-    out->UVlight_level = 70;
+    out->Raw_value = CONVERSION_DEFAULT_RAW_VALUE;
+    out->UVlight_level = CONVERSION_DEFAULT_UVLIGHT_LEVEL;
     return 0;
 }
 
@@ -40,7 +43,7 @@ uint8_t Read_Conversion_Value(Conversion_value_t *out)
 void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Conversion_t *cc)
 {
     StoredConversion_t buffer;
-    buffer.magic = 0x12345678;
+    buffer.magic = CONVERSION_MAGIC;
     buffer.data = *val;
     if (cc->Conversion_flag == finish)
     {
