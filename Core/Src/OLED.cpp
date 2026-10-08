@@ -156,8 +156,8 @@ void Phys_DrawHorizontalString(uint8_t *phys, uint8_t x, uint8_t y, const char *
 /*
  * SSD1306 128x32 显示驱动类。
  * 显示状态全部封装为私有成员；绘制辅助函数为私有成员函数。
- * 文件内单例 g_oled 通过 constinit 静态初始化：不产生 .init_array 动态构造，
- * 构造期不访问 HAL（满足在 HAL_Init() 之前完成静态初始化的约束）。
+ * 文件内单例 g_oled 为静态存储期对象：其类型可平凡默认构造，故由启动代码零初始化，
+ * 不产生 .init_array 动态构造，也不在构造期访问 HAL（满足在 HAL_Init() 之前完成静态初始化的约束）。
  * 对外仍暴露原有 OLED_* C 函数（extern "C"，见文件末尾）。
  */
 class OledDriver
@@ -188,7 +188,7 @@ private:
     void Phys_DrawCharRotated(uint8_t x, uint8_t y, char ch, uint8_t color);
     void Phys_DrawVerticalRotatedString(uint8_t x, uint8_t y, const char *str, uint8_t color);
 
-    // 显示状态（静态存储期对象 g_oled 由启动代码零初始化；无默认成员初始化以保持 constinit 常量初始化）
+    // 显示状态（静态存储期对象 g_oled 由启动代码零初始化；无默认成员初始化以保持平凡默认构造）
     uint8_t logic_buffer[kLogicBufferSize]; // 32x128 逻辑图形缓冲区
     uint8_t phys_buffer[kPhysBufferSize];   // 128x32 物理显示缓冲区
     uint8_t dot_exist;                      // 圆点显示标志（由 set_dot 设置）
