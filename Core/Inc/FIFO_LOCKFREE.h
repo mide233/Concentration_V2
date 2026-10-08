@@ -34,11 +34,11 @@ typedef struct {
     .tail = 0}
 
 /* 对外 API */
-void fifo_lockfree_reset(fifo_lockfree_t *f);                   // 复位队列
-bool fifo_lockfree_is_empty(const fifo_lockfree_t *f);          // 是否为空
-bool fifo_lockfree_is_full(const fifo_lockfree_t *f);           // 是否已满
-bool fifo_lockfree_put(fifo_lockfree_t *f, fifo_data_t data);   // 写入一个元素（生产者调用）
-bool fifo_lockfree_get(fifo_lockfree_t *f, fifo_data_t *data);  // 读取一个元素（消费者调用）
-uint_fast8_t fifo_lockfree_available(const fifo_lockfree_t *f); // 已用元素个数
+void fifo_lockfree_reset(fifo_lockfree_t *fifo);                   // 复位队列
+bool fifo_lockfree_is_empty(const fifo_lockfree_t *fifo);          // 是否为空
+bool fifo_lockfree_is_full(const fifo_lockfree_t *fifo);           // 是否已满
+bool fifo_lockfree_put(fifo_lockfree_t *fifo, fifo_data_t data);   // 写入一个元素（生产者调用）
+bool fifo_lockfree_get(fifo_lockfree_t *fifo, fifo_data_t *data);  // 读取一个元素（消费者调用）
+uint_fast8_t fifo_lockfree_available(const fifo_lockfree_t *fifo); // 已用元素个数
 
 #endif

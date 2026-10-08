@@ -325,23 +325,23 @@ static void Phys_DrawVerticalRotatedString(uint8_t x, uint8_t y, const char *str
 {
     // 若启用 TEXT_REVERSE_ORDER，则先复制并反转字符串
     char reversed[5];
-    const char *p = str;
+    const char *p_str = str;
 #if TEXT_REVERSE_ORDER
     uint8_t len = 0;
-    while (p[len])
+    while (p_str[len])
         len++;
     for (uint8_t i = 0; i < len; i++)
     {
-        reversed[i] = p[len - 1 - i];
+        reversed[i] = p_str[len - 1 - i];
     }
     reversed[len] = 0;
-    p = reversed;
+    p_str = reversed;
 #endif
 
     uint8_t y_offset = 0;
-    while (*p)
+    while (*p_str)
     {
-        Phys_DrawCharRotated(x, y + y_offset, *p++, color);
+        Phys_DrawCharRotated(x, y + y_offset, *p_str++, color);
         y_offset += TEXT_CHAR_SPACING;
         if (y_offset + 8 > OLED_PHYS_HEIGHT)
             break;

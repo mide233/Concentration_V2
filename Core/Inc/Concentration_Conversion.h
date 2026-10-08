@@ -63,14 +63,14 @@ typedef struct {
 // float my_lg(float x);
 // float my_ln(float x);
 
-void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Conversion_t *Concentration_Conversion);
+void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Conversion_t *cc);
 uint8_t Read_Conversion_Value(Conversion_value_t *out);
 float custom_exp10(float x);
-void Concentration_Conversion_init(Concentration_Conversion_t *Concentration_Conversion, time_Unit_e time_Unit, float once_detection_time);
-void Concentration_Conversion_updata(Concentration_Conversion_t *Concentration_Conversion, float current, float delta_time);
-float get_Result(Concentration_Conversion_t *Concentration_Conversion);
-bool Concentration_Conversion_calibration(Concentration_Conversion_t *Concentration_Conversion, float current, float delta_time);
-void Concentration_Conversion_Reset(Concentration_Conversion_t *Concentration_Conversion);
-float Get_Concentration_Conversion_Detection_Time(Concentration_Conversion_t *Concentration_Conversion);
+void Concentration_Conversion_init(Concentration_Conversion_t *cc, time_Unit_e time_Unit, float once_detection_time);
+void Concentration_Conversion_updata(Concentration_Conversion_t *cc, float current, float delta_time);
+float get_Result(Concentration_Conversion_t *cc);
+bool Concentration_Conversion_calibration(Concentration_Conversion_t *cc, float current, float delta_time);
+void Concentration_Conversion_Reset(Concentration_Conversion_t *cc);
+float Get_Concentration_Conversion_Detection_Time(Concentration_Conversion_t *cc);
 
 #endif

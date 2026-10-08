@@ -18,10 +18,10 @@
  */
 uint8_t Read_Conversion_Value(Conversion_value_t *out)
 {
-    StoredConversion_t *p = (StoredConversion_t *)CONVERSION_DATA_ADDR;
-    if (p->magic == 0x12345678) // magic 校验通过
+    StoredConversion_t *stored = (StoredConversion_t *)CONVERSION_DATA_ADDR;
+    if (stored->magic == 0x12345678) // magic 校验通过
     {
-        *out = p->data;
+        *out = stored->data;
         return 1;
     }
     // magic 无效：返回默认值（数值可按需求调整）
@@ -32,17 +32,17 @@ uint8_t Read_Conversion_Value(Conversion_value_t *out)
 
 /*
  * 功能：将转换参数写入 Flash（掉电保存）
- * 参数：val - 待写入的数据；Concentration_Conversion - 携带状态标志
+ * 参数：val - 待写入的数据；cc - 携带状态标志
  * 说明：仅当状态标志为 finish 时才执行写入。
  * 风险：R3 —— 本函数内以 NULL 调用 Read_Conversion_Value，
  *       当 Flash 中已存在有效 magic 时会解引用空指针。仅记录，未修改。
  */
-void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Conversion_t *Concentration_Conversion)
+void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Conversion_t *cc)
 {
     StoredConversion_t buffer;
     buffer.magic = 0x12345678;
     buffer.data = *val;
-    if (Concentration_Conversion->Conversion_flag == finish)
+    if (cc->Conversion_flag == finish)
     {
         HAL_FLASH_Unlock();
 
@@ -132,37 +132,37 @@ float custom_exp10(float x)
 
 /*
  * 功能：初始化转换状态机
- * 参数：Concentration_Conversion - 状态对象；time_Unit - 时间单位；
+ * 参数：cc - 状态对象；time_Unit - 时间单位；
  *       once_detection_time - 一次检测所需时间
  * 说明：从 Flash 读取校准参数；读取成功置 ready，否则置 not_INIT。
  * 风险：R2 —— 末行使用未初始化的局部变量 c_Unit（UB），且字段 Unit 全仓只写不读。仅记录，未修改。
  */
-void Concentration_Conversion_init(Concentration_Conversion_t *Concentration_Conversion, time_Unit_e time_Unit, float once_detection_time)
+void Concentration_Conversion_init(Concentration_Conversion_t *cc, time_Unit_e time_Unit, float once_detection_time)
 {
     float c_Unit; // [!] 未初始化，见风险 R2
-    Concentration_Conversion->once_detection_time = once_detection_time;
+    cc->once_detection_time = once_detection_time;
     if (time_Unit == s)
     {
-        Concentration_Conversion->time_Unit = 1.0f;
+        cc->time_Unit = 1.0f;
     }
     if (time_Unit == ms)
     {
-        Concentration_Conversion->time_Unit = 0.001f;
+        cc->time_Unit = 0.001f;
     }
     if (time_Unit == us)
     {
-        Concentration_Conversion->time_Unit = 0.000001f;
+        cc->time_Unit = 0.000001f;
     }
-    if (Read_Conversion_Value(&Concentration_Conversion->Conversion_value))
+    if (Read_Conversion_Value(&cc->Conversion_value))
     {
-        Concentration_Conversion->Conversion_flag = ready;
+        cc->Conversion_flag = ready;
     }
     else
     {
-        Concentration_Conversion->Conversion_flag = not_INIT;
+        cc->Conversion_flag = not_INIT;
     }
 
-    Concentration_Conversion->Unit = Concentration_Conversion->time_Unit * c_Unit; // [!] c_Unit 未初始化，见风险 R2
+    cc->Unit = cc->time_Unit * c_Unit; // [!] c_Unit 未初始化，见风险 R2
 }
 
 /*
@@ -171,20 +171,20 @@ void Concentration_Conversion_init(Concentration_Conversion_t *Concentration_Con
  * 说明：首次进入（ready/not_INIT）记录起始电流；not_finish 期间累加电流并对时间积分；
  *       达到 once_detection_time 后置 finish。
  */
-void Concentration_Conversion_updata(Concentration_Conversion_t *Concentration_Conversion, float current, float delta_time)
+void Concentration_Conversion_updata(Concentration_Conversion_t *cc, float current, float delta_time)
 {
-    if (Concentration_Conversion->Conversion_flag == ready || Concentration_Conversion->Conversion_flag == not_INIT)
+    if (cc->Conversion_flag == ready || cc->Conversion_flag == not_INIT)
     {
-        Concentration_Conversion->Conversion_flag = not_finish;
-        Concentration_Conversion->current_start = current;
+        cc->Conversion_flag = not_finish;
+        cc->current_start = current;
     }
-    else if (Concentration_Conversion->Conversion_flag == not_finish)
+    else if (cc->Conversion_flag == not_finish)
     {
-        Concentration_Conversion->current_total += (current - Concentration_Conversion->current_start) * delta_time;
-        Concentration_Conversion->detection_time += delta_time * Concentration_Conversion->time_Unit;
-        if (Concentration_Conversion->detection_time >= Concentration_Conversion->once_detection_time)
+        cc->current_total += (current - cc->current_start) * delta_time;
+        cc->detection_time += delta_time * cc->time_Unit;
+        if (cc->detection_time >= cc->once_detection_time)
         {
-            Concentration_Conversion->Conversion_flag = finish;
+            cc->Conversion_flag = finish;
         }
     }
 }
@@ -195,18 +195,18 @@ void Concentration_Conversion_updata(Concentration_Conversion_t *Concentration_C
  * 说明：返回后将累计量与检测时间清零，并把状态复位为 ready。
  * 注意：函数内保留了一段注释掉的备选计算公式，疑似废弃，待人工确认。
  */
-float get_Result(Concentration_Conversion_t *Concentration_Conversion)
+float get_Result(Concentration_Conversion_t *cc)
 {
     float Result = 0;
-    if (Concentration_Conversion->Conversion_flag == finish)
+    if (cc->Conversion_flag == finish)
     {
         // [已注释] 备选计算公式，疑似旧实现，待人工确认（保留原样，勿删）
         // Q = Concentration_Conversion -> Conversion_value.Raw_value - Concentration_Conversion -> current_total;
         // value = (Q+Concentration_Conversion -> Conversion_value.value_A)/Concentration_Conversion -> Conversion_value.value_B;
-        Result = Concentration_Conversion->current_total - Concentration_Conversion->Conversion_value.Raw_value;
-        Concentration_Conversion->current_total = 0.0f;
-        Concentration_Conversion->detection_time = 0.0f;
-        Concentration_Conversion->Conversion_flag = ready;
+        Result = cc->current_total - cc->Conversion_value.Raw_value;
+        cc->current_total = 0.0f;
+        cc->detection_time = 0.0f;
+        cc->Conversion_flag = ready;
     }
     return Result;
 }
@@ -217,33 +217,33 @@ float get_Result(Concentration_Conversion_t *Concentration_Conversion)
  * 返回：true 表示本次校准完成
  * 说明：内部调用 updata 推进；完成后把累计量写入 Raw_value 作为基准。
  */
-bool Concentration_Conversion_calibration(Concentration_Conversion_t *Concentration_Conversion, float current, float delta_time)
+bool Concentration_Conversion_calibration(Concentration_Conversion_t *cc, float current, float delta_time)
 {
-    Concentration_Conversion_updata(Concentration_Conversion, current, delta_time);
-    if (Concentration_Conversion->Conversion_flag == finish)
+    Concentration_Conversion_updata(cc, current, delta_time);
+    if (cc->Conversion_flag == finish)
     {
-        Concentration_Conversion->Conversion_value.Raw_value = Concentration_Conversion->current_total;
-        Concentration_Conversion->current_total = 0;
+        cc->Conversion_value.Raw_value = cc->current_total;
+        cc->current_total = 0;
     }
-    return Concentration_Conversion->Conversion_flag == finish;
+    return cc->Conversion_flag == finish;
 }
 
 /*
  * 功能：复位转换状态
  * 说明：非 not_INIT 时把状态置为 ready，并清零累计量与检测时间。
  */
-void Concentration_Conversion_Reset(Concentration_Conversion_t *Concentration_Conversion)
+void Concentration_Conversion_Reset(Concentration_Conversion_t *cc)
 {
-    if (Concentration_Conversion->Conversion_flag != not_INIT)
-        Concentration_Conversion->Conversion_flag = ready;
-    Concentration_Conversion->current_total = 0;
-    Concentration_Conversion->detection_time = 0;
+    if (cc->Conversion_flag != not_INIT)
+        cc->Conversion_flag = ready;
+    cc->current_total = 0;
+    cc->detection_time = 0;
 }
 
 /*
  * 功能：读取当前累计检测时间
  */
-float Get_Concentration_Conversion_Detection_Time(Concentration_Conversion_t *Concentration_Conversion)
+float Get_Concentration_Conversion_Detection_Time(Concentration_Conversion_t *cc)
 {
-    return Concentration_Conversion->detection_time;
+    return cc->detection_time;
 }
