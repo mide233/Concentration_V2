@@ -5,7 +5,7 @@
 
 #define CONVERSION_DATA_ADDR 0x0800FC00
 
-// ¶ÁÈ¡×ª»»²ÎÊı£¬³É¹¦·µ»Ø 1£¬Ê§°Ü£¨Î´³õÊ¼»¯»òÊı¾İÎŞĞ§£©·µ»Ø 0
+// è¯»å–è½¬æ¢å‚æ•°ï¼ŒæˆåŠŸè¿”å› 1ï¼Œå¤±è´¥ï¼ˆæœªåˆå§‹åŒ–æˆ–æ•°æ®æ— æ•ˆï¼‰è¿”å› 0
 uint8_t Read_Conversion_Value(Conversion_value_t *out)
 {
     StoredConversion_t *p = (StoredConversion_t *)CONVERSION_DATA_ADDR;
@@ -14,13 +14,13 @@ uint8_t Read_Conversion_Value(Conversion_value_t *out)
         *out = p->data;
         return 1;
     }
-    // ·µ»ØÄ¬ÈÏÖµ£¨¿É¸ù¾İĞèÇóĞŞ¸Ä£©
+    // è¿”å›é»˜è®¤å€¼ï¼ˆå¯æ ¹æ®éœ€æ±‚ä¿®æ”¹ï¼‰
     out->Raw_value = 0.3f;
     out->UVlight_level = 70;
     return 0;
 }
 
-// Ğ´Èë×ª»»²ÎÊıµ½ Flash£¨µôµç±£´æ£©
+// å†™å…¥è½¬æ¢å‚æ•°åˆ° Flashï¼ˆæ‰ç”µä¿å­˜ï¼‰
 void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Conversion_t *Concentration_Conversion)
 {
     StoredConversion_t buffer;
@@ -30,11 +30,11 @@ void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Convers
     {
         HAL_FLASH_Unlock();
 
-        // ¼ì²éÊÇ·ñĞèÒª²Á³ı£ºµØÖ·È«Îª 0xFFFFFFFF »ò magic ²»Æ¥Åä£¨¼´Î´Ğ´Èë»òÊı¾İÎŞĞ§£©
+        // æ£€æŸ¥æ˜¯å¦éœ€è¦æ“¦é™¤ï¼šåœ°å€å…¨ä¸º 0xFFFFFFFF æˆ– magic ä¸åŒ¹é…ï¼ˆå³æœªå†™å…¥æˆ–æ•°æ®æ— æ•ˆï¼‰
         uint32_t *checkAddr = (uint32_t *)CONVERSION_DATA_ADDR;
         if (*checkAddr == 0xFFFFFFFF || Read_Conversion_Value(NULL) == 1)
         {
-            // ²Á³ıÕû¸öÒ³£¨1KB£©
+            // æ“¦é™¤æ•´ä¸ªé¡µï¼ˆ1KBï¼‰
             FLASH_EraseInitTypeDef erase;
             erase.TypeErase = FLASH_TYPEERASE_PAGES;
             erase.PageAddress = CONVERSION_DATA_ADDR;
@@ -43,7 +43,7 @@ void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Convers
             HAL_FLASHEx_Erase(&erase, &pageError);
         }
 
-        // °´×Ö£¨32Î»£©Ğ´Èë½á¹¹ÌåÊı¾İ
+        // æŒ‰å­—ï¼ˆ32ä½ï¼‰å†™å…¥ç»“æ„ä½“æ•°æ®
         uint32_t *pSrc = (uint32_t *)&buffer;
         for (int i = 0; i < sizeof(StoredConversion_t) / 4; i++)
         {
@@ -55,9 +55,9 @@ void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Convers
         HAL_FLASH_Lock();
     }
 }
-//// ¼ÆËã×ÔÈ»¶ÔÊı ln(x)
+//// è®¡ç®—è‡ªç„¶å¯¹æ•° ln(x)
 // float my_ln(float x) {
-//     if (x <= 0) return 0; // ´íÎó´¦Àí£ºxĞèÎªÕıÊı
+//     if (x <= 0) return 0; // é”™è¯¯å¤„ç†ï¼šxéœ€ä¸ºæ­£æ•°
 //     float t = (x - 1) / (x + 1);
 //     float t2 = t * t;
 //     float t_power = t;
@@ -65,26 +65,26 @@ void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Convers
 //     int coeff = 1;
 
 //    for (int i = 0; i < 4; i++) {
-//        ln_x += t_power / coeff;  // ÀÛ¼ÓÌ©ÀÕ¼¶ÊıÏî
-//        coeff += 2;              // ÏµÊı¸üĞÂ£º1, 3, 5, 7
-//        t_power *= t2;           // tµÄÃİ´Î¸üĞÂ£ºt^3, t^5, t^7
+//        ln_x += t_power / coeff;  // ç´¯åŠ æ³°å‹’çº§æ•°é¡¹
+//        coeff += 2;              // ç³»æ•°æ›´æ–°ï¼š1, 3, 5, 7
+//        t_power *= t2;           // tçš„å¹‚æ¬¡æ›´æ–°ï¼št^3, t^5, t^7
 //    }
 //    return 2 * ln_x;
 //}
 
-//// ¼ÆËã lg(x)
+//// è®¡ç®— lg(x)
 // float my_lg(float x) {
-//     return my_ln(x) / 2.302585092994046; // ln(10) ¡Ö 2.302585092994046
+//     return my_ln(x) / 2.302585092994046; // ln(10) â‰ˆ 2.302585092994046
 // }
 
-// ½üËÆ¼ÆËã10^x (x ¡Ê [-10, 10])
+// è¿‘ä¼¼è®¡ç®—10^x (x âˆˆ [-10, 10])
 float custom_exp10(float x)
 {
-    // 1. ·ÖÀëÕûÊıºÍĞ¡Êı²¿·Ö
+    // 1. åˆ†ç¦»æ•´æ•°å’Œå°æ•°éƒ¨åˆ†
     int integer = (int)x;
     float fractional = x - integer;
 
-    // 2. ¼ÆËãÕûÊı²¿·Ö: 10^integer
+    // 2. è®¡ç®—æ•´æ•°éƒ¨åˆ†: 10^integer
     float int_power = 1.0;
     if (integer > 0)
     {
@@ -97,8 +97,8 @@ float custom_exp10(float x)
             int_power /= 10.0;
     }
 
-    // 3. ¼ÆËãĞ¡Êı²¿·Ö: 10^fractional (Ê¹ÓÃ¶àÏîÊ½½üËÆ)
-    // ÔÚ[0,1)Çø¼äÄÚ½üËÆ£¬Ê¹ÓÃ4½×¶àÏîÊ½ÄâºÏ
+    // 3. è®¡ç®—å°æ•°éƒ¨åˆ†: 10^fractional (ä½¿ç”¨å¤šé¡¹å¼è¿‘ä¼¼)
+    // åœ¨[0,1)åŒºé—´å†…è¿‘ä¼¼ï¼Œä½¿ç”¨4é˜¶å¤šé¡¹å¼æ‹Ÿåˆ
     const float c0 = 0.9999999995;
     const float c1 = 2.302580022;
     const float c2 = 2.650910053;
@@ -106,7 +106,7 @@ float custom_exp10(float x)
 
     float frac_power = c0 + fractional * c1 + fractional * fractional * c2 + fractional * fractional * fractional * c3;
 
-    // 4. ×éºÏ½á¹û
+    // 4. ç»„åˆç»“æœ
     return int_power * frac_power;
 }
 

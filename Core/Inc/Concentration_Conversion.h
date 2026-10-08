@@ -34,18 +34,18 @@ typedef struct{
     // float value_B;
 }Conversion_value_t;
 
-// ¶¨Òå´ø magic µÄ´æ´¢½á¹¹Ìå
+// å®šä¹‰å¸¦ magic çš„å­˜å‚¨ç»“æ„ä½“
 typedef struct {
-    uint32_t magic;                     // Ğ£ÑéÄ§Êı
-    Conversion_value_t data;            // Êµ¼ÊÓĞĞ§Êı¾İ
+    uint32_t magic;                     // æ ¡éªŒé­”æ•°
+    Conversion_value_t data;            // å®é™…æœ‰æ•ˆæ•°æ®
 } StoredConversion_t;
 
 typedef struct {
-    float delta_time;          //ÉÏ´ÎÖÁ±¾´Îµ÷ÓÃµÄÊ±¼ä¼ä¸ô
+    float delta_time;          //ä¸Šæ¬¡è‡³æœ¬æ¬¡è°ƒç”¨çš„æ—¶é—´é—´éš”
     float Unit;  
     float time_Unit;
     float detection_time;
-    float once_detection_time; //Ò»´Î¼ì²âËùĞèÊ±¼ä£¬µ¥Î»£ºs
+    float once_detection_time; //ä¸€æ¬¡æ£€æµ‹æ‰€éœ€æ—¶é—´ï¼Œå•ä½ï¼šs
     float current_total;       
     float current_start;
     Conversion_value_t Conversion_value;
