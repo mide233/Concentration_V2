@@ -182,9 +182,9 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> App::data.ADC_value[20]
 - `App::data.hardware_status` 指向成员 `hw`（原全局 `hardware_status`）。
 
 ### 2.3 控制流 / 状态机
-`work_status_e`：`INIT, SAVE, calibration, working, readay, err_TILT, err_open, err_low_pow, err_no_cap`。
+`work_status_e`（C++ 作用域枚举 `enum class work_status_e : uint8_t`，使用需 `work_status_e::` 限定；C 侧为 `typedef uint8_t` 占位以保持 `my_data_t` 布局）：`INIT, SAVE, calibration, working, ready, err_TILT, err_open, err_low_pow, err_no_cap`。
 - `CC_set_work_status()`：按 `work_status` 分派，处理 `Concentration_Conversion_Reset`、UV 灯亮度更新、`DC_ctrl_ON/OFF`、`get_Result`；含各错误态恢复；并用 `SHDBY/CHRG` 引脚更新 `BAT_status`（`PIN_RESET→SHDBY`，否则 `CHRG` 为 reset→`CHRG`，否则 `NORMAL`）。
-- `Concentration_Conversion_task()`：`calibration→Concentration_Conversion_calibration`；`working→Concentration_Conversion_update`；`SAVE→Write_Conversion_Value` 后置 `readay`；`INIT→` 空操作。
+- `Concentration_Conversion_task()`：`calibration→Concentration_Conversion_calibration`；`working→Concentration_Conversion_update`；`SAVE→Write_Conversion_Value` 后置 `ready`；`INIT→` 空操作。
 - 校准/测量计时：`detection_time`（`time_Unit` 换算），达到 `once_detection_time`（初始化传入 `100.0f`）置 `finish`。
 - **注释编号缺口**：`App.cpp` 中标签 `1. 意图状态转换` 后直接 `3. 低电量检测`，缺 `2`；且低电量检测块被注释掉。
 
@@ -393,6 +393,7 @@ bin sha256 `dbd2a8f1eedd8ccaa8b7e0f80b4b151e16e324ae874a7c2c7451f86016be8cf6`；
 | C | C++ | OLED 状态封装进 `OledDriver` 类 + `FlashWriteGuard` RAII | `3821472` |
 | D | C++ | `main.c` 业务逻辑抽到 `App` 类（新增 `App.cpp`/`App.h`） | `d65b728` |
 | E | C++ | 更新本文件（C++ 规范/接缝/验证方法/新基线） | 见 git log |
+| F | 修正 | 修正拼写：`Concentration_Conversion_updata`→`_update`；`readay`→`ready`（`work_status_e` 改作用域枚举 `: uint8_t`，布局不变） | 见 git log |
 
 阶段 0–5 通过“干净重建 + `bin`/`hex` sha256 与基线一致”验证；C++ 阶段 A–E 改用“干净重建 + 导出符号集合一致 + 结构体布局 `static_assert` + 尺寸/中断时序审查”（逐字节 sha256 不再适用）。以上均**未做硬件验证**。回滚：`git revert <commit>`。
 

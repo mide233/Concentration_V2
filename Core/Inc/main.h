@@ -113,17 +113,24 @@ typedef enum {
     SHDBY,
     CHRG
 } BAT_status_e;
-typedef enum {
+#ifdef __cplusplus
+/* C++：作用域枚举（enum class），避免与 Conversion_flag_e::ready 重名；
+ * 固定底层类型 uint8_t 以保持 my_data_t 布局不变（ARM EABI 下 work_status_e 原为 1 字节）。 */
+enum class work_status_e : uint8_t {
     INIT,
     SAVE,
     calibration,
     working,
-    readay,
+    ready,
     err_TILT,
     err_open,
     err_low_pow,
     err_no_cap
-} work_status_e;
+};
+#else
+/* C 侧不使用该枚举的取值，仅需类型占位即可（业务逻辑位于 C++ 的 App 模块）。 */
+typedef uint8_t work_status_e;
+#endif
 typedef struct
 {
     float adc_BAT;

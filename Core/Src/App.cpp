@@ -95,7 +95,7 @@ void App::Average_filtering(uint16_t *input_data, uint16_t num_channels, uint16_
 
 void App::Concentration_Conversion_task()
 {
-    if (data.work_status == calibration)
+    if (data.work_status == work_status_e::calibration)
     {
         Concentration_Conversion_calibration(&data.Concentration_Conversion, data.ADC_INT, DETECTION_TIME);
         if (data.Concentration_Conversion.Conversion_flag == not_finish)
@@ -103,20 +103,20 @@ void App::Concentration_Conversion_task()
             UVlight_level_update(data.Concentration_Conversion.Conversion_value.UVlight_level);
         }
     }
-    else if (data.work_status == working)
+    else if (data.work_status == work_status_e::working)
     {
         Concentration_Conversion_update(&data.Concentration_Conversion, data.ADC_INT, DETECTION_TIME);
     }
-    else if (data.work_status == SAVE)
+    else if (data.work_status == work_status_e::SAVE)
     {
         Write_Conversion_Value(&data.Concentration_Conversion.Conversion_value, &data.Concentration_Conversion);
-        data.work_status = readay;
+        data.work_status = work_status_e::ready;
     }
-    else if (data.work_status == INIT)
+    else if (data.work_status == work_status_e::INIT)
     {
         ;
     }
-    if (data.work_status == calibration || data.work_status == working)
+    if (data.work_status == work_status_e::calibration || data.work_status == work_status_e::working)
     {
         data.progress = (uint8_t)(data.Concentration_Conversion.detection_time);
     }
@@ -131,67 +131,67 @@ void App::CC_set_work_status()
     /* ==================== 1. 意图状态转换 ==================== */
     switch (data.work_status)
     {
-    case readay:
-        if (data.hope_status == working && data.Concentration_Conversion.Conversion_flag != finish)
+    case work_status_e::ready:
+        if (data.hope_status == work_status_e::working && data.Concentration_Conversion.Conversion_flag != finish)
         {
             Concentration_Conversion_Reset(&data.Concentration_Conversion);
             UVlight_level_update(data.Concentration_Conversion.Conversion_value.UVlight_level);
             DC_ctrl_ON();
-            data.work_status = working;
+            data.work_status = work_status_e::working;
         }
-        else if (data.hope_status == calibration && data.Concentration_Conversion.Conversion_flag != finish)
+        else if (data.hope_status == work_status_e::calibration && data.Concentration_Conversion.Conversion_flag != finish)
         {
             Concentration_Conversion_Reset(&data.Concentration_Conversion);
             UVlight_level_update(data.Concentration_Conversion.Conversion_value.UVlight_level);
             DC_ctrl_ON();
-            data.work_status = calibration;
+            data.work_status = work_status_e::calibration;
         }
-        else if (data.hope_status == SAVE)
+        else if (data.hope_status == work_status_e::SAVE)
         {
-            data.work_status = SAVE;
+            data.work_status = work_status_e::SAVE;
         }
         break;
 
-    case working:
-    case calibration:
-    case INIT:
-        if (data.hope_status == readay && data.Concentration_Conversion.Conversion_flag == finish)
+    case work_status_e::working:
+    case work_status_e::calibration:
+    case work_status_e::INIT:
+        if (data.hope_status == work_status_e::ready && data.Concentration_Conversion.Conversion_flag == finish)
         {
             data.result = get_Result(&data.Concentration_Conversion);
-            data.work_status = readay;
+            data.work_status = work_status_e::ready;
         }
-        else if (data.hope_status != readay && data.Concentration_Conversion.Conversion_flag == finish)
+        else if (data.hope_status != work_status_e::ready && data.Concentration_Conversion.Conversion_flag == finish)
         {
             UVlight_level_update(CLOSE_level);
             DC_ctrl_OFF();
         }
-        else if (data.hope_status == readay && data.Concentration_Conversion.Conversion_flag == not_finish)
+        else if (data.hope_status == work_status_e::ready && data.Concentration_Conversion.Conversion_flag == not_finish)
         {
             UVlight_level_update(CLOSE_level);
             DC_ctrl_OFF();
-            data.work_status = readay;
+            data.work_status = work_status_e::ready;
         }
-        else if (data.hope_status == readay && data.Concentration_Conversion.Conversion_flag == ready)
+        else if (data.hope_status == work_status_e::ready && data.Concentration_Conversion.Conversion_flag == ready)
         {
             UVlight_level_update(CLOSE_level);
             DC_ctrl_OFF();
-            data.work_status = readay;
+            data.work_status = work_status_e::ready;
         }
         if (data.hardware_status->TILT_status == TILT_STATUS)
-            data.work_status = err_TILT;
+            data.work_status = work_status_e::err_TILT;
         else if (data.hardware_status->SW_status == SW_STATUS)
-            data.work_status = err_open;
+            data.work_status = work_status_e::err_open;
         else if (data.hardware_status->KEY_status == KEY_STATUS)
-            data.work_status = err_no_cap;
+            data.work_status = work_status_e::err_no_cap;
         break;
 
-    case err_TILT:
-    case err_open:
-    case err_low_pow:
-    case err_no_cap:
-        if (data.hope_status == readay)
+    case work_status_e::err_TILT:
+    case work_status_e::err_open:
+    case work_status_e::err_low_pow:
+    case work_status_e::err_no_cap:
+        if (data.hope_status == work_status_e::ready)
         {
-            data.work_status = readay;
+            data.work_status = work_status_e::ready;
         }
         break;
 
@@ -201,33 +201,33 @@ void App::CC_set_work_status()
 
     /* ==================== 3. 低电量检测 ==================== */
     // if (my_data->BAT.battery_level <= 1 &&
-    //     my_data->work_status != working &&
-    //     my_data->work_status != calibration &&
+    //     my_data->work_status != work_status_e::working &&
+    //     my_data->work_status != work_status_e::calibration &&
     //     my_data->BAT.BAT_status != CHRG)
     // {
-    //     my_data->work_status = err_low_pow;
+    //     my_data->work_status = work_status_e::err_low_pow;
     // }
 
     /* ==================== 4. 错误恢复 ==================== */
-    if (data.work_status == err_low_pow &&
+    if (data.work_status == work_status_e::err_low_pow &&
         (data.BAT.battery_level > 2 || data.BAT.BAT_status == SHDBY))
     {
-        data.work_status = readay;
+        data.work_status = work_status_e::ready;
     }
-    if (data.work_status == err_open &&
+    if (data.work_status == work_status_e::err_open &&
         data.hardware_status->SW_status != SW_STATUS)
     {
-        data.work_status = readay;
+        data.work_status = work_status_e::ready;
     }
-    if (data.work_status == err_TILT &&
+    if (data.work_status == work_status_e::err_TILT &&
         data.hardware_status->TILT_status != TILT_STATUS)
     {
-        data.work_status = readay;
+        data.work_status = work_status_e::ready;
     }
-    if (data.work_status == err_no_cap &&
+    if (data.work_status == work_status_e::err_no_cap &&
         data.hardware_status->KEY_status != KEY_STATUS)
     {
-        data.work_status = readay;
+        data.work_status = work_status_e::ready;
     }
 
     /* ==================== 5. 电池状态更新 ==================== */
@@ -272,7 +272,7 @@ void App::onAdcComplete()
     data.ADC_INT = data.ADC_avg[ADC_INT_CHANNEL];
     data.BAT.adc_BAT = data.ADC_avg[ADC_BAT_CHANNEL];
     Concentration_Conversion_task();
-    if (data.work_status == working || data.work_status == calibration)
+    if (data.work_status == work_status_e::working || data.work_status == work_status_e::calibration)
     {
         if (HAL_GPIO_ReadPin(SW_GPIO_Port, SW_Pin) != data.hardware_status->SW_status)
         {
