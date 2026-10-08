@@ -18,8 +18,9 @@ bool fifo_lockfree_is_full(const fifo_lockfree_t *f)
 
 bool fifo_lockfree_put(fifo_lockfree_t *f, fifo_data_t data)
 {
-    if (fifo_lockfree_is_full(f)) {
-        return false;   /* 满，丢弃（可根据需要等待或覆盖） */
+    if (fifo_lockfree_is_full(f))
+    {
+        return false; /* 满，丢弃（可根据需要等待或覆盖） */
     }
     /* 先写数据，再移动尾指针 */
     f->buf[f->tail] = data;
@@ -29,7 +30,8 @@ bool fifo_lockfree_put(fifo_lockfree_t *f, fifo_data_t data)
 
 bool fifo_lockfree_get(fifo_lockfree_t *f, fifo_data_t *data)
 {
-    if (fifo_lockfree_is_empty(f)) {
+    if (fifo_lockfree_is_empty(f))
+    {
         return false;
     }
     /* 先读数据，再移动头指针 */
