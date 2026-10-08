@@ -7,8 +7,6 @@
 /build/
 compile_commands.json
 
-# devcontainer
-/.devcontainer/.zsh_history
 
 # eide template
 *.ept
