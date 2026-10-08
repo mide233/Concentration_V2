@@ -71,7 +71,7 @@ void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Convers
 uint8_t Read_Conversion_Value(Conversion_value_t *out);
 float custom_exp10(float x);
 void Concentration_Conversion_init(Concentration_Conversion_t *cc, time_Unit_e time_Unit, float once_detection_time);
-void Concentration_Conversion_updata(Concentration_Conversion_t *cc, float current, float delta_time);
+void Concentration_Conversion_update(Concentration_Conversion_t *cc, float current, float delta_time);
 float get_Result(Concentration_Conversion_t *cc);
 bool Concentration_Conversion_calibration(Concentration_Conversion_t *cc, float current, float delta_time);
 void Concentration_Conversion_Reset(Concentration_Conversion_t *cc);

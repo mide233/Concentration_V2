@@ -184,7 +184,7 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> App::data.ADC_value[20]
 ### 2.3 控制流 / 状态机
 `work_status_e`：`INIT, SAVE, calibration, working, readay, err_TILT, err_open, err_low_pow, err_no_cap`。
 - `CC_set_work_status()`：按 `work_status` 分派，处理 `Concentration_Conversion_Reset`、UV 灯亮度更新、`DC_ctrl_ON/OFF`、`get_Result`；含各错误态恢复；并用 `SHDBY/CHRG` 引脚更新 `BAT_status`（`PIN_RESET→SHDBY`，否则 `CHRG` 为 reset→`CHRG`，否则 `NORMAL`）。
-- `Concentration_Conversion_task()`：`calibration→Concentration_Conversion_calibration`；`working→Concentration_Conversion_updata`；`SAVE→Write_Conversion_Value` 后置 `readay`；`INIT→` 空操作。
+- `Concentration_Conversion_task()`：`calibration→Concentration_Conversion_calibration`；`working→Concentration_Conversion_update`；`SAVE→Write_Conversion_Value` 后置 `readay`；`INIT→` 空操作。
 - 校准/测量计时：`detection_time`（`time_Unit` 换算），达到 `once_detection_time`（初始化传入 `100.0f`）置 `finish`。
 - **注释编号缺口**：`App.cpp` 中标签 `1. 意图状态转换` 后直接 `3. 低电量检测`，缺 `2`；且低电量检测块被注释掉。
 
@@ -353,7 +353,7 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 - **R10 ⚪ 注释编号缺口**：`App.cpp` 中状态机注释 `1.` 后直接 `3.`，缺 `2.`；低电量检测块被注释掉。→ 记录。
 - **R11 ⚪ 未使用宏写法不一致**：`main.h` 的 `set_light_level(my_data, level)` 用 `.` 而非 `->`（且未使用）。→ 记录。
 - **R12 ⚪ 遗留构建产物**：历史上 `MDK-ARM/` 曾提交 Keil 编译产物，已在阶段 1a 连同 `.eide/`、`.cmsis/` 清理。→ 已处理。
-- **R13 ⚪ 导出符号命名不一致**：`Concentration_Conversion_updata`（拼写 `updata`）、`get_Result` 等导出符号命名/风格不统一；按治理规则保留原样（阶段 4 仅改局部变量/参数）。→ 记录，**需要人工决策**。
+- **R13 ⚪ 导出符号命名不一致**：`Concentration_Conversion_updata` 的拼写错误 `updata` 已修正为 `Concentration_Conversion_update`（导出符号随之更名，调用点/注释同步）；`get_Result` 等命名/风格差异按治理规则保留原样（阶段 4 仅改局部变量/参数）。→ `updata` 已处理，其余记录。
 
 ---
 
@@ -406,7 +406,7 @@ bin sha256 `dbd2a8f1eedd8ccaa8b7e0f80b4b151e16e324ae874a7c2c7451f86016be8cf6`；
 | R3 | `Read_Conversion_Value(NULL)` 空指针风险 | 第二次保存可能硬件错误，建议修复（改行为） |
 | R4 | 配置页 `0x0800FC00` 未在链接脚本保留 | 固件增长会与持久化数据冲突 |
 | R5 | ADC 完成回调内做重活 | 实时性/抖动风险 |
-| R13 | 导出符号命名不一致（`updata`/`get_Result`） | 可读性；改名需兼容方案 |
+| R13 | 导出符号命名不一致（`updata`/`get_Result`） | `updata`→`update` 已修正；`get_Result` 等风格差异保留 |
 | R6/R8/R9/R10/R11 | 死代码、UART 中断阻塞、TIM2 悬空中断等 | 清理/加固需评估行为影响 |
 
 > 以上均**只记录、未修改**。修复任何一项都可能改变行为，须由开发者决策并单独验证。

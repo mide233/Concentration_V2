@@ -105,7 +105,7 @@ void App::Concentration_Conversion_task()
     }
     else if (data.work_status == working)
     {
-        Concentration_Conversion_updata(&data.Concentration_Conversion, data.ADC_INT, DETECTION_TIME);
+        Concentration_Conversion_update(&data.Concentration_Conversion, data.ADC_INT, DETECTION_TIME);
     }
     else if (data.work_status == SAVE)
     {

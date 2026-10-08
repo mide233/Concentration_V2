@@ -212,7 +212,7 @@ void Concentration_Conversion_init(Concentration_Conversion_t *cc, time_Unit_e t
  * 说明：首次进入（ready/not_INIT）记录起始电流；not_finish 期间累加电流并对时间积分；
  *       达到 once_detection_time 后置 finish。
  */
-void Concentration_Conversion_updata(Concentration_Conversion_t *cc, float current, float delta_time)
+void Concentration_Conversion_update(Concentration_Conversion_t *cc, float current, float delta_time)
 {
     if (cc->Conversion_flag == ready || cc->Conversion_flag == not_INIT)
     {
@@ -256,11 +256,11 @@ float get_Result(Concentration_Conversion_t *cc)
  * 功能：执行一次校准
  * 参数：current - 当前电流；delta_time - 距上次调用的时间间隔
  * 返回：true 表示本次校准完成
- * 说明：内部调用 updata 推进；完成后把累计量写入 Raw_value 作为基准。
+ * 说明：内部调用 update 推进；完成后把累计量写入 Raw_value 作为基准。
  */
 bool Concentration_Conversion_calibration(Concentration_Conversion_t *cc, float current, float delta_time)
 {
-    Concentration_Conversion_updata(cc, current, delta_time);
+    Concentration_Conversion_update(cc, current, delta_time);
     if (cc->Conversion_flag == finish)
     {
         cc->Conversion_value.Raw_value = cc->current_total;
