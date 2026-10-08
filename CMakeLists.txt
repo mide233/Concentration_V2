@@ -48,6 +48,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/Concentration_Conversion.cpp
     Core/Src/FIFO_LOCKFREE.cpp
     Core/Src/OLED.cpp
+    Core/Src/App.cpp
 )
 
 # User include paths
