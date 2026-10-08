@@ -1,71 +1,61 @@
-# AGENTS.md — Concentration_V2 交接与协作规范
+# AGENTS.md — Concentration_V2 开发协作指南
 
-> 本文件把原计划的 6 篇文档（HANDOVER / ARCHITECTURE / BUILD / RISKS / REFACTOR_PLAN / CHANGELOG_REFACTOR）合并为一篇，并纳入面向 AI agent 与人类接手者的项目治理规则。
+> 本文件是 AI agent（以及人类接手者）协助本项目**开发**的入口文档：包含项目事实、硬约束、开发惯例、常见任务指引与已知风险。
 >
 > 目标 MCU：**STM32F103C8T6**（LQFP48，64 KB Flash / 20 KB RAM）。
 > 构建系统：**CMake + Ninja**，工具链 **arm-none-eabi-gcc 15.2.1**。
-> 本文档编写时仓库处于**重构初期**；所有“风险”仅记录、未修改代码。凡未实机运行之处均标注 **未做硬件验证**。
+> 代码整理（重命名/格式化/注释/结构）已在阶段 0–5 完成，历史见[附录 B](#附录-b-重构历史已完成)。
+> 本环境**无目标硬件**；凡未实机运行之处一律标注 **未做硬件验证**。
 
 ---
 
-## 0. 项目治理规则（最高优先级，AI agent 必读）
+## 0. 角色与协作原则（最高优先级，AI agent 必读）
 
-### 0.1 总原则
-1. **行为等价优先于代码漂亮。** 任何可能改变功能、逻辑、时序、中断行为、优化结果、内存布局、外设寄存器访问、通信协议、ABI 或构建产物的改动，默认禁止。
-2. 任务不是重写，而是**保守重构 + 交接文档化**。
-3. 发现疑似 bug、竞态、未定义行为、死代码、危险写法，**只记录到第 4 章 RISKS，不自动修改**。
-4. 一次只做**一类**改动，保持 diff 最小；每步必须**可编译、可验证、可回滚**。
-5. 每完成一步，必须说明：**改了什么 / 没改什么 / 如何验证 / 还有什么风险**。
-6. 无法验证硬件行为时，必须明确写 **“未做硬件验证”**，不得假装已验证。
-7. 遇到不确定的地方，**停下来问**；不猜硬件行为、不猜原作者意图。
+### 0.1 角色
+你是本项目的**嵌入式开发助手**。目标是帮助开发者**理解、修改、扩展、调试**这套 STM32F103C8T6 固件，而不是重写它。具体包括：新增/修改外设与业务逻辑、修复缺陷、补充模块、编写文档与调试建议、解释现有代码。
 
-### 0.2 禁止修改的内容（除非明确批准）
+### 0.2 硬约束（改动现有行为前必须得到开发者明确指示）
+默认**保持既有功能、逻辑、时序、中断行为、优化结果、内存布局、外设寄存器访问、通信协议、ABI、持久化格式与构建产物不变**。以下内容未经明确要求不得改动：
 - 控制流、循环顺序、条件判断、状态机迁移、超时、重试、延时、看门狗喂狗位置。
 - 中断服务程序名、中断优先级、临界区、锁、原子操作、内存屏障。
-- `volatile`、`const`、`static`、`inline`、`packed`、`aligned`、`section`、`weak`、`alias`、`interrupt` 等修饰。
-- 寄存器读写顺序、位操作掩码、移位、位域、外设初始化顺序。
+- `volatile`、`const`、`static`、`inline`、`packed`、`aligned`、`section`、`weak`、`alias`、`interrupt` 等修饰的增删。
+- 寄存器读写顺序、位掩码、移位、位域、外设初始化顺序。
 - 启动文件、链接脚本、向量表、汇编文件、编译器选项、预处理宏的值与条件编译逻辑。
-- 公共 API、导出函数签名、全局变量名、结构体布局、枚举值、联合体布局、协议字段、持久化格式、配置项键名。
+- 公共 API、导出函数签名、全局变量名、结构体/联合体布局、枚举值、协议字段、持久化格式、配置项键名。
 - 已有依赖、构建系统、烧录配置、时钟/PLL/电源/看门狗/DMA/缓存/MPU 配置。
-- “看似无用”的代码、空循环、`nop`、`delay`、强制类型转换、对齐填充、保留字段。
-- 引入新库、新 RTOS API、动态内存、异常、RTTI、STL、printf 重依赖（除非项目原本已用）。
-- 大规模自动格式化整个仓库（除非明确同意并单独提交）。
-- **CubeMX 控制/生成的内容**（`Core/Src/*.c` 的 `MX_*_Init`、`.ioc`、`STM32F103XX_FLASH.ld`、`startup_stm32f103xb.s`、`cmake/stm32cubemx/CMakeLists.txt`）——如确需修改，先请求。
+- “看似无用”的代码、空循环、`nop`、`delay`、强制类型转换、对齐填充、保留字段（如需删除先确认）。
+- 引入新库、新 RTOS、动态内存、异常、RTTI、STL、`printf` 重依赖（除非开发者明确要求或项目原本已用）。
+- **CubeMX 控制/生成的内容**：`.ioc`、`STM32F103XX_FLASH.ld`、`startup_stm32f103xb.s`、`cmake/stm32cubemx/CMakeLists.txt`、以及生成文件中的 `MX_*_Init` 等区域。详见 [4.1 CubeMX 工作流](#41-cubemx-工作流)。
+- 大规模自动格式化整个仓库（除非开发者同意并单独提交）。
 
-### 0.3 允许的整理（每步均需验证）
-- 按项目既有风格或 `.clang-format` 做**局部**格式化（优先只格式化正在修改的文件；阶段 3 起可整 `Core/`）。
-- 补充注释、函数头注释、模块说明（**不得删除原作者注释**，除非确认是纯错别字）。
-- 修正局部变量、函数内参数、`static` 函数、文件内宏的命名，前提是全仓库引用同步修改且不影响外部符号。
-- 将明显的魔法数字提取为 `const`/宏，值必须完全不变。
-- 整理头文件保护、include 顺序、重复 include（须确认不改变条件编译）。
-- 补充交接文档、模块依赖图、构建说明、风险清单。
-- 对导出符号、中断函数、寄存器宏、协议字段、结构体字段**默认不改名**；如必须改，先给出兼容方案并等待确认。
+> 若一项开发任务**必须**改变上述行为（例如修复缺陷需要改动逻辑），先说明必要性、影响范围与风险，得到确认后再动手；无法在本环境验证的行为改动，标注 **未做硬件验证** 并给出实测建议。
 
-### 0.4 工作流程（严格按阶段，未获“执行阶段 X”指令前只输出审计/计划/文档）
-- **阶段 0**：只读审计（不改文件）。
-- **阶段 1**：建立基线（构建 + 指标 + 静态检查）。
-- **阶段 2**：生成交接文档。
-- **阶段 3**：低风险整理（格式化、注释、文档补充），单独提交。
-- **阶段 4**：命名整理（局部/static/文件内宏，先全仓库搜索引用），单独提交。
-- **阶段 5**：结构整理（默认不做，需明确批准）。
+### 0.3 开发惯例（鼓励遵循）
+- 按项目既有风格与 `.clang-format` 编写；可格式化**正在修改的文件**（不要顺手全仓格式化）。
+- 文件编码 **UTF-8**、行尾 **CRLF**（照现有文件），缩进 4 空格。
+- 可补充文件头/函数头/模块注释；不删除既有注释，除非确认是错别字。
+- 局部变量、函数内参数、`static` 函数、文件内宏可规范命名，但需全仓库引用同步修改，且不影响外部符号。
+- 魔法数字可提取为 `const`/宏（值必须完全不变）。
+- 新增用户模块放 `Core/Src` 与 `Core/Inc`，并在根 `CMakeLists.txt` 的 `USER_*` 列表登记（见 [3.2](#32-构建命令对应-vscodetasksjson)）。
+- 复用现有宏/类型/风格，不自创并行机制。
 
-### 0.5 每步验证要求
-1. `git diff` 确认改动范围符合计划。
-2. 编译通过，尽量零新增警告。
-3. 运行已有测试；没有则说明。
-4. 对比修改前后的 size / map 关键符号大小；如可行对比关键函数反汇编。
-5. 如条件允许做硬件冒烟测试，否则注明 **未做硬件验证**。
-6. 失败立即回滚，不叠加改动。
+### 0.4 每次改动的工作方式
+1. 先说明**计划与影响面**，再动手。
+2. 改动最小化，一次聚焦一类改动。
+3. 编译通过（`cmake --build --preset Debug`），尽量零新增警告。
+4. **可等价验证的改动**（重命名、注释、格式化、仅提取常量等）对比 `bin`/`hex` sha256；**行为性改动**无法由此验证，必须说明并建议实测。
+5. 无法实机验证时明确写 **“未做硬件验证”**。
+6. 验证失败立即回滚，不叠加改动。
 
-### 0.6 每轮回复格式
-`阶段 / 目标 / 范围 / 未做·不做 / 变更文件 / 关键 diff 摘要 / 验证结果 / 风险与不确定项 / 需要我确认的问题 / 下一步建议`
+### 0.5 回复格式
+开发任务建议按：`目标 / 方案 / 影响面 / 变更文件 / 验证 / 风险 / 待确认` 输出。涉及现有行为改动时必须显式点出。
 
-### 0.7 遇到不确定时
-不猜。列出可选方案、影响范围、风险，然后等待确认。若必须改变行为才能修复的问题，只记录到第 4 章并标记 **“需要人工决策”**。
+### 0.6 遇到不确定时
+不要猜硬件行为、不要猜原作者意图。列出可选方案、影响范围与风险，等待开发者确认。确属缺陷但需改变行为的，先记录到第 5 章并标记 **“需要人工决策”**。
 
 ---
 
-## 1. HANDOVER — 项目概览（原 HANDOVER.md）
+## 1. 项目概览
 
 ### 1.1 项目是什么
 一个基于 STM32F103C8T6 的**便携式浓度/电量检测仪**固件（工程名 `Concentration_V2`）：
@@ -76,9 +66,9 @@
 - 按键/开关：`TILT=PA2`、`KEY=PA7`、`SW=PA8`；充电/待机指示 `SHDBY=PB4`、`CHRG=PB5`；负载控制 `DC_ctrl=PB8`；状态灯 `LED=PB12`。
 - 校准结果持久化到 Flash 末页绝对地址 `0x0800FC00`。
 
-> 注：原设计意图与算法细节缺少说明文档，部分逻辑（UART 收帧、低电量检测）疑似未完成，见第 4 章。
+> 注：原设计意图与算法细节缺少说明文档，部分逻辑（UART 收帧、低电量检测）疑似未完成，见第 5 章。
 
-### 1.2 仓库结构（清理后）
+### 1.2 仓库结构
 ```
 Concentration_V2/
 ├── Core/
@@ -100,7 +90,7 @@ Concentration_V2/
 ├── .clang-format, .clangd, .gitignore, .dockerignore
 └── AGENTS.md（本文件）
 ```
-> 清理历史：`MDK-ARM/`、`.eide/`、`.cmsis/` 已在阶段 1a 删除（提交 `babcada`），见第 6 章。
+> `MDK-ARM/`、`.eide/`、`.cmsis/` 已在重构阶段 1a 删除（提交 `babcada`），见附录 B。
 
 ### 1.3 启动流程
 ```
@@ -125,12 +115,12 @@ main():
 | 应用主控 | `Core/Src/main.c` | 初始化编排、状态机、ADC 中断回调、按键消抖、电池计算 |
 | 浓度/校准 | `Concentration_Conversion.c/.h` | 校准/测量状态机，Flash 持久化（`0x0800FC00`） |
 | 显示 | `OLED.c/.h` | SSD1306 128×32 驱动，逻辑缓冲→物理旋转，字体与图形 |
-| 环形缓冲 | `FIFO_LOCKFREE.c/.h` | 无锁 SPSC 环形队列（`uint16_t`），**疑似未使用** |
+| 环形缓冲 | `FIFO_LOCKFREE.c/.h` | 无锁 SPSC 环形队列（`uint16_t`），**当前未被使用** |
 | 中断 | `stm32f1xx_it.c` | 异常/中断处理，含 USART1 IDLE 收帧逻辑 |
 | 外设初始化 | `adc.c/dma.c/gpio.c/i2c.c/tim.c/usart.c` | CubeMX 生成，与 `.ioc` 一致（勿改） |
 
 ### 1.5 如何构建 / 烧录 / 调试
-见第 3 章 BUILD。烧录（需实机 ST-Link）：
+见第 3 章。烧录（需实机 ST-Link）：
 ```
 openocd -f tools/openocd.cfg -c "program build/Debug/Concentration_V2.elf verify reset exit"
 ```
@@ -139,7 +129,7 @@ openocd -f tools/openocd.cfg -c "program build/Debug/Concentration_V2.elf verify
 
 ---
 
-## 2. ARCHITECTURE（原 ARCHITECTURE.md）
+## 2. 架构与数据流
 
 ### 2.1 模块职责与依赖
 ```
@@ -150,7 +140,7 @@ openocd -f tools/openocd.cfg -c "program build/Debug/Concentration_V2.elf verify
               ┌───────────┘         │       └────────────┐
               ▼                     ▼                    ▼
    Concentration_Conversion    OLED.c              FIFO_LOCKFREE.c
-   (状态机 + Flash 持久化)     (SSD1306/I2C)       (SPSC 环形, 疑似未用)
+   (状态机 + Flash 持久化)     (SSD1306/I2C)       (SPSC 环形, 未用)
               │                     │
               ▼                     ▼
         stm32f1xx_hal (HAL) ◄── CubeMX 生成外设 (adc/dma/i2c/tim/usart/gpio)
@@ -197,9 +187,9 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> my_data.ADC_value[20]
 | SVC/DebugMon/PendSV | — | 空 |
 
 - NVIC 仅使能 `DMA1_Channel1_IRQn` 与 `USART1_IRQn`。
-- **注意**：`HAL_TIM_Base_Start_IT(&htim2)` 置位了 TIM2 更新中断使能位，但工程中**没有 `TIM2_IRQHandler`，也未使能 `TIM2_IRQn`**；若将来使能该 NVIC 中断，会落入 `Default_Handler` 的 `b Infinite_Loop` 而死循环（见风险 R9，仅记录）。
+- **注意**：`HAL_TIM_Base_Start_IT(&htim2)` 置位了 TIM2 更新中断使能位，但工程中**没有 `TIM2_IRQHandler`，也未使能 `TIM2_IRQn`**；若将来使能该 NVIC 中断，会落入 `Default_Handler` 的 `b Infinite_Loop` 而死循环（见风险 R9）。
 
-### 2.5 外设与引脚（与 `.ioc` 一致，勿改）
+### 2.5 外设与引脚（与 `.ioc` 一致）
 | 外设 | 关键配置 |
 |---|---|
 | ADC1 | 扫描使能、非连续、外部触发 `T2_CC2`、2 通道：PA0(IN0,rank1)、PA1(IN1,rank2)，71.5 周期，DMA1_Ch1 循环半字 |
@@ -213,14 +203,14 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> my_data.ADC_value[20]
 
 ### 2.6 持久化（Flash）
 - 绝对地址 `0x0800FC00`（64 KB Flash 的最后一页，1 KB）。
-- 结构：`StoredConversion_t { uint32_t magic=0x12345678; Conversion_value_t data; }`，按字（32 位）编程。
+- 结构：`StoredConversion_t { uint32_t magic=0x12345678; Conversion_value_t data; }`，按字（32 位）编程；`CONVERSION_MAGIC` 等宏见 `Concentration_Conversion.c`。
 - `Read_Conversion_Value()` 读时校验 magic；无效则给默认 `Raw_value=0.3f, UVlight_level=70`。
 - `Write_Conversion_Value()` 仅在 `Conversion_flag==finish` 时擦除该页并写入；写入前条件判断见风险 R3（高危）。
 - **该页未在链接脚本中保留**（见风险 R4）。
 
 ---
 
-## 3. BUILD（原 BUILD.md）
+## 3. 构建 / 烧录 / 调试
 
 ### 3.1 工具链
 | 组件 | 版本（实测） |
@@ -229,7 +219,7 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> my_data.ADC_value[20]
 | cmake | 3.28.3 |
 | ninja | 1.11.1 |
 | binutils/objcopy | 2.45.1 |
-| clang-tidy / clang-format | Ubuntu LLVM 22.1.8 |
+| clang-tidy / clang-format | Ubuntu LLVM 22.1.8（本环境**无 `clang` 编译器**） |
 | C 标准 | C11（`CMAKE_C_EXTENSIONS` 开启） |
 
 ### 3.2 构建命令（对应 `.vscode/tasks.json`）
@@ -250,47 +240,73 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; exit" 
 - 链接：`-T STM32F103XX_FLASH.ld --specs=nano.specs -Wl,-Map=Concentration_V2.map -Wl,--gc-sections -Wl,--print-memory-usage -lm`。
 
 ### 3.4 产物
-`build/Debug/`：`Concentration_V2.elf`、`.bin`、`.hex`、`.map`（`build/` 已 gitignore）。
+`build/Debug/`：`Concentration_V2.elf`、`.bin`、`.hex`、`.map`（`build/` 已 gitignore，不提交）。
 
-### 3.5 基线指标（阶段 1b，Debug / 干净构建）
-| 指标 | 值 |
-|---|---|
-| text / data / bss | 27732 / 12 / 3768（dec 31512） |
-| FLASH 占用 | 27744 B / 64 KB = 42.33% |
-| RAM 占用 | 3784 B / 20 KB = 18.48% |
-| bin / hex / elf / map | 27744 / 78120 / 971748 / 576168 字节 |
-| Flash 镜像末端 | `0x08006C60`（配置页 `0x0800FC00` 之上尚余 36768 B） |
-| bin sha256 | `dbd2a8f1eedd8ccaa8b7e0f80b4b151e16e324ae874a7c2c7451f86016be8cf6` |
-| bin md5 | `643237fd511430fd27b6d672b995ff1e` |
-| hex sha256 | `d3a782a95d64c0dc880fa87fb1c78859c06366c0d8242f85903671469cc8d710` |
-| elf sha256 | `110f6a5bfc8f05c210566650db375fdbd5dd7a510fe8e2963f7db4501d2691b3` |
-
-编译警告（既有 2 条，未消除）：
-1. `Concentration_Conversion.c:138: 'c_Unit' is used uninitialized [-Wuninitialized]`（= 风险 R2）
-2. `OLED.c:249: 'Phys_DrawHorizontalString' defined but not used [-Wunused-function]`（= 风险 R6）
-
-静态分析（阶段 1c，clang-tidy，仅 `Core/Src`）关键结果：
-- `clang-analyzer-core.FixedAddressDereference`：`Concentration_Conversion.c:12`、`:35`（固定地址解引用）。
-- `clang-analyzer-deadcode.DeadStores`：`OLED.c:228`（`ny` 初始化后未读）。
-- `clang-analyzer-security.insecureAPI`：`OLED.c:148/283/324/325`（`memset`，信息性）。
-- 扩展集（风格类，不建议在保守重构中改）：`bugprone-reserved-identifier`×14、`easily-swappable-parameters`×12、`performance-no-int-to-ptr`×11、`narrowing-conversions`×11、`macro-parentheses`×6、`branch-clone`×1。
-
-### 3.6 常见问题
-- **找不到 `clang` 编译器**：本环境只有 `clang-tidy`/`clang-format`，无 `clang`（用户表述的“clang”指静态分析，已按 clang-tidy 执行）。
+### 3.5 常见问题
+- **`clang` 不存在**：本环境只有 `clang-tidy`/`clang-format`，无 `clang`。
 - **CubeMX 重新生成后**：必须运行 `python3 .scripts/patch_cubemx`（否则 include 路径/预设可能回退）。
-- **改用户文件位置**：需同步根 `CMakeLists.txt` 的 `USER_*` 源列表。
-- **构建目录**：`build/Debug`、`build/Release` 均在 gitignore 内，不提交。
+- **新增/移动用户文件**：需同步根 `CMakeLists.txt` 的 `USER_*` 源列表。
+- **构建目录**：`build/Debug`、`build/Release` 均在 gitignore 内。
 
 ---
 
-## 4. RISKS（原 RISKS.md）——**只记录，不修改**
+## 4. 开发指引（常见任务）
 
-> 严重度：🔴 高危 / 🟠 中 / 🟡 低 / ⚪ 信息。凡涉及行为改变的一律 **需要人工决策**。
+### 4.1 CubeMX 工作流
+- 修改外设/引脚/时钟/中断：**用 STM32CubeMX 打开 `Concentration_V2.ioc` 重新生成**，不要手改生成区域。
+- 生成时 `KeepUserCode=true`，**`USER CODE BEGIN/END` 之间的内容会被保留**——用户逻辑只写在这些区域内。
+- 生成后**务必**执行 `python3 .scripts/patch_cubemx`（幂等修补 `cmake/stm32cubemx/CMakeLists.txt` 与预设）。
+- 重新生成可能覆盖生成区域内的一切（含注释与格式）；提交前检查 `git diff` 是否只动了预期的 USER CODE 区。
+- 注意：`main.h`、`stm32f1xx_hal_conf.h` 等也有 USER CODE 区，可安全编辑；其余生成内容勿动。
 
-- **R1 ⚪ 文件编码不一致**：`Concentration_Conversion.c/.h` 为 GBK，其余 UTF-8；所有文件 CRLF。任何转码/重排可能改变注释字节。**已获决策**：阶段 3 单独提交转为 UTF-8（保留注释语义）。
-- **R2 🟠 未初始化变量（UB）**：`Concentration_Conversion.c:115` `float c_Unit;` 未赋值，`:138` 使用 `Unit = time_Unit * c_Unit`；且字段 `Unit` 全仓只写不读。→ **需要人工决策**。（编译器已告警）
-- **R3 🔴 `Read_Conversion_Value(NULL)` 空指针解引用**：`Concentration_Conversion.c:35`。该函数两条分支都会解引用 `out`。首次保存时 `*checkAddr==0xFFFFFFFF` 短路，安全；**一旦 Flash 已含 magic（即第二次进入保存判断），将真实写地址 0**，STM32F1 上极可能触发总线/硬件错误。→ **需要人工决策**。
-- **R4 🟠 配置页未在链接脚本保留**：`0x0800FC00` 页未被 `STM32F103XX_FLASH.ld` 预留。当前 Flash 镜像止于 `0x08006C60`，尚余 36768 B，**暂无重叠**；固件一旦增长越过 `0x0800FC00` 即冲突。→ **需要人工决策 / 持续关注**。
+### 4.2 新增/修改用户模块
+1. 在 `Core/Src` 建 `.c`、`Core/Inc` 建 `.h`（UTF-8 + CRLF）。
+2. 在根 `CMakeLists.txt` 的 `USER_SOURCES`/用户源列表加入新 `.c`（include 路径 `Core/Inc` 已包含）。
+3. 头文件用保护宏（非保留标识符，如 `MODULE_H`）。
+4. 需要访问 HAL 时 `#include "main.h"` 或对应外设头。
+5. `cmake --preset Debug && cmake --build --preset Debug` 验证。
+
+### 4.3 增加外设 / 引脚
+- 走 CubeMX（见 4.1），在 `.ioc` 配置后重新生成；`MX_*_Init()` 会加入生成代码。
+- 若需在中断中使用，注意 NVIC 优先级与现有优先级（DMA1_Ch1=4，USART1=0，SysTick=15）的相互影响。
+- 新增中断需补 `stm32f1xx_it.c` 的对应 handler（CubeMX 会生成骨架）。
+
+### 4.4 调整 OLED 显示
+- 入口 `OLED_Update(uint8_t battery_level, uint8_t bluetooth_state, uint8_t percent)`：主循环调用。
+- 布局/尺寸宏在 `OLED.h`（`OLED_PHYS_*`、`TOP/MID/BOTTOM_AREA_HEIGHT`、`TEXT_*`）；逻辑缓冲经 `RotateLogicToPhysical` 旋转到物理屏。
+- 字体/位图为 `OLED.c` 内 `static const` 数组；新增字符需同时更新绘制函数的分支。
+- I2C 传输超时固定 100ms，改动需评估对主循环节奏的影响。
+
+### 4.5 修改状态机 / 业务逻辑
+- 状态迁移集中在 `main.c` 的 `CC_set_work_status()`；`Concentration_Conversion_task()` 按状态分派。
+- 大量业务在 `HAL_ADC_ConvCpltCallback`（DMA 中断上下文）内执行——**新增逻辑要评估中断时长**（见 R5）。
+- 调整计时/采样时注意 `once_detection_time`、`time_Unit`、`detection_time` 的关系与单位换算。
+
+### 4.6 修改 Flash 持久化数据（谨慎）
+- 结构 `StoredConversion_t` 位于 `Concentration_Conversion.c`；改字段会改变持久化格式。
+- **改动前必须设计版本/迁移方案**：无 magic 或版本不符时应回退默认值，且避免旧数据被误解析。
+- 该页地址 `0x0800FC00` 未在链接脚本预留（R4），且写路径存在空指针风险（R3）——改动前先阅读风险并知会开发者。
+
+### 4.7 资源约束
+- 当前占用：FLASH 约 42%（27744 B / 64 KB），RAM 约 18%（3784 B / 20 KB）；Flash 镜像末端 `0x08006C60`，距配置页 `0x0800FC00` 还有约 36 KB。
+- 固件增长接近 `0x0800FC00` 前必须处理 R4（把配置页在链接脚本中保留）。
+- 资源紧张时优先减小 `printf`/浮点重依赖的引入。
+
+### 4.8 编码 / 风格 / 提交
+- UTF-8、CRLF、4 空格；沿用 `.clang-format`。
+- 提交信息用类型前缀：`feat:` / `fix:` / `refactor:` / `docs:` / `chore:`；保持单一主题、可回滚。
+- 纯等价改动（命名/注释/格式/提取常量）建议注明 `no logic change`。
+
+---
+
+## 5. 已知风险与陷阱（开发时当心）——**记录，未修**
+
+> 严重度：🔴 高危 / 🟠 中 / 🟡 低 / ⚪ 信息。凡涉及行为改变的一律 **需要人工决策**。行号可能因后续编辑而漂移，以符号名为准。
+
+- **R1 ✅ 已解决 文件编码不一致**：`Concentration_Conversion.c/.h` 原为 GBK，已在重构阶段 3 步骤 1（提交 `30866f0`）转为 UTF-8，构建产物逐字节一致。
+- **R2 🟠 未初始化变量（UB）**：`Concentration_Conversion.c` 中 `float c_Unit;`（`Concentration_Conversion_init`）未赋值即用于 `Unit = time_Unit * c_Unit`；字段 `Unit` 全仓只写不读。→ **需要人工决策**。（编译器已告警）
+- **R3 🔴 `Read_Conversion_Value(NULL)` 空指针解引用**：`Write_Conversion_Value` 内调用 `Read_Conversion_Value(NULL)`；该函数两条分支都会解引用 `out`。首次保存时 `*checkAddr==0xFFFFFFFF` 短路，安全；**一旦 Flash 已含 magic（即第二次进入保存判断），将真实写地址 0**，STM32F1 上极可能触发总线/硬件错误。→ **需要人工决策**。
+- **R4 🟠 配置页未在链接脚本保留**：`0x0800FC00` 页未被 `STM32F103XX_FLASH.ld` 预留。当前无重叠；固件一旦增长越过该地址即冲突。→ **需要人工决策 / 持续关注**。
 - **R5 🟠 中断中做重活**：`HAL_ADC_ConvCpltCallback` 在 DMA 中断（优先级 4）上下文执行大量浮点运算与状态机，可能造成抖动/长中断。→ **需要人工决策**。
 - **R6 🟡 死代码 / 未使用符号**：UART 收帧路径 `rx_frame_ready`/`rx_work_buffer`/`rx_frame_len` 无消费者；`msg_fifo`/`msg_buf`（FIFO 子系统）、全局 `I`、`custom_exp10`、`Get_Concentration_Conversion_Detection_Time`、`test_t`、`current_Unit_e`、宏 `set_light_level`、`Phys_DrawHorizontalString` 均未使用（部分已被 `--gc-sections` 移除）。→ 记录。
 - **R7 🟡 FIFO 无内存屏障**：`FIFO_LOCKFREE` 使用 `volatile` head/tail，但无显式内存屏障。SPSC 在 Cortex-M3 上通常可用，但严格性存疑。→ 记录。
@@ -298,55 +314,59 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; exit" 
 - **R9 🟡 TIM2 更新中断“悬空”**：`HAL_TIM_Base_Start_IT(&htim2)` 置位更新中断使能，但无 `TIM2_IRQHandler` 且未使能 `TIM2_IRQn`。当前不触发；若启用 NVIC 将落入 `Default_Handler` 死循环。→ 记录。
 - **R10 ⚪ 注释编号缺口**：`main.c` 状态机注释 `1.` 后直接 `3.`，缺 `2.`；低电量检测块被注释掉。→ 记录。
 - **R11 ⚪ 未使用宏写法不一致**：`main.h` 的 `set_light_level(my_data, level)` 用 `.` 而非 `->`（且未使用）。→ 记录。
-- **R12 ⚪ 遗留构建产物**：历史上 `MDK-ARM/` 曾提交 Keil 编译产物（`.o/.crf/.map/.hex/.axf` 等），已在阶段 1a 连同 `.eide/`、`.cmsis/` 一并清理。→ 已处理。
+- **R12 ⚪ 遗留构建产物**：历史上 `MDK-ARM/` 曾提交 Keil 编译产物，已在阶段 1a 连同 `.eide/`、`.cmsis/` 清理。→ 已处理。
+- **R13 ⚪ 导出符号命名不一致**：`Concentration_Conversion_updata`（拼写 `updata`）、`get_Result` 等导出符号命名/风格不统一；按治理规则保留原样（阶段 4 仅改局部变量/参数）。→ 记录，**需要人工决策**。
 
 ---
 
-## 5. REFACTOR_PLAN（原 REFACTOR_PLAN.md）——按风险从低到高
+## 附录 A. 基线与静态分析（阶段 1）
 
-| 序 | 阶段 | 内容 | 风险 | 状态 |
-|---|---|---|---|---|
-| 0 | — | 只读审计 | 无 | ✅ 完成 |
-| 1a | 1 | 删除 `MDK-ARM/`、`.eide/`、`.cmsis/`（构建中立） | 低 | ✅ 提交 `babcada` |
-| 1b | 1 | 干净 Debug 基线 + 指标 + 风险核实 | 无 | ✅ 完成 |
-| 1c | 1 | clang-tidy + clang-format 报告 | 无 | ✅ 完成 |
-| 2 | 2 | 交接文档（本文件） | 无 | 🔄 进行中 |
-| 3 | 3 | GBK→UTF-8（单独提交，先出 diff 供确认） | 低 | ⏳ 待批 |
-| 3 | 3 | 整 `Core/` 按 `.clang-format` 格式化（单独提交） | 低 | ⏳ 待批 |
-| 3 | 3 | 补充注释/函数头/模块说明（不删原作者注释） | 低 | ⏳ 待批 |
-| 4 | 4 | 局部/`static`/文件内宏命名整理（先全仓搜索引用） | 中 | ⏳ 待批 |
-| 5 | 5 | 结构整理（提取常量、拆纯函数、头文件整理） | 中 | ⏳ 需单独批准 |
+基线指标（Debug / 干净构建）：text 27732 / data 12 / bss 3768（dec 31512）；FLASH 27744 B / 64 KB = 42.33%；RAM 3784 B / 20 KB = 18.48%。
+bin sha256 `dbd2a8f1eedd8ccaa8b7e0f80b4b151e16e324ae874a7c2c7451f86016be8cf6`；hex sha256 `d3a782a95d64c0dc880fa87fb1c78859c06366c0d8242f85903671469cc8d710`。
+编译警告（既有 2 条，未消除）：
+1. `Concentration_Conversion.c` — `'c_Unit' is used uninitialized`（= R2）。
+2. `OLED.c` — `'Phys_DrawHorizontalString' defined but not used`（= R6）。
 
-**不建议做（除非另行批准）**：修复 R2/R3/R4/R5 等任何改变行为的项；重排 HAL/中断/寄存器相关代码；文件拆分与架构重写。
+静态分析（clang-tidy，仅 `Core/Src`）关键结果：
+- `clang-analyzer-core.FixedAddressDereference`：`Concentration_Conversion.c`（固定地址解引用，对应 R3/R4）。
+- `clang-analyzer-deadcode.DeadStores`：`OLED.c`（`ny` 初始化后未读）。
+- `clang-analyzer-security.insecureAPI`：`OLED.c`（`memset`，信息性）。
+- 扩展集（风格类，未处理）：`bugprone-reserved-identifier`、`easily-swappable-parameters`、`performance-no-int-to-ptr`、`narrowing-conversions`、`macro-parentheses`、`branch-clone`。
 
 ---
 
-## 6. CHANGELOG_REFACTOR（原 CHANGELOG_REFACTOR.md）
+## 附录 B. 重构历史（已完成）
 
-### 基线（阶段 1b，Debug）
-- 工具链 arm-none-eabi-gcc 15.2.1 / cmake 3.28.3 / ninja 1.11.1。
-- size：text 27732 / data 12 / bss 3768；FLASH 42.33%，RAM 18.48%。
-- bin sha256 `dbd2a8f1…8cf6`（完整值见 3.5）。警告 2 条。
+| 序 | 阶段 | 内容 | 提交 |
+|---|---|---|---|
+| 0 | — | 只读审计 | — |
+| 1a | 1 | 删除 `MDK-ARM/`、`.eide/`、`.cmsis/`（构建中立） | `babcada` |
+| 1b | 1 | 干净 Debug 基线 + 指标 + 风险核实 | — |
+| 1c | 1 | clang-tidy + clang-format 报告 | — |
+| 2 | 2 | 交接文档（本文件） | `f5309d8` |
+| 3-1 | 3 | GBK→UTF-8（仅注释文本） | `30866f0` |
+| 3-2 | 3 | `clang-format` 格式化 6 个纯用户模块 | `72cf152` |
+| 3-3 | 3 | 补充并统一注释（废弃代码保留并加注） | `44586be` |
+| 4 | 4 | 局部变量/函数内参数命名整理 | `fcaa1bc` |
+| 5 | 5 | 提取文件内魔法数字 + 修复保留标识符 include 守卫 | `b597c69` |
 
-### 阶段 1a — 清理无关工程文件
-- **变更**：删除 `MDK-ARM/`(108)、`.eide/`(3)、`.cmsis/`(261)，共 372 文件、-105851 行。
-- **提交**：`babcada` `chore: remove unused Keil/EIDE project files and CMSIS pack`。
-- **回滚**：`git revert babcada`。
-- **验证**：删除前后产物**逐字节一致**（bin sha256 相同），配置+构建通过。
-- **未做**：硬件验证。
-
-### 阶段 1b — 基线记录
-- **变更**：无（只读构建/分析）。日志 `build/_baseline/`。
-- **验证**：configure/build OK；警告 2 条；核实 R2（编译器确认）、R3（逻辑确认）、R4（map 确认无重叠）。
-
-### 阶段 1c — 静态检查
-- **变更**：无。日志 `build/_baseline/clang-tidy.log`、`clang-tidy-extended.log`。
-- **验证**：clang-tidy（analyzer）产出 7 条诊断；clang-format 显示 6/7 用户文件不符合现有风格。
-
-### 阶段 2 — 交接文档
-- **变更**：新增 `AGENTS.md`（合并 6 篇）。
-- **验证**：纯文档，不影响构建。
+以上每一步均通过“干净重建 + `bin`/`hex` sha256 与基线一致”验证；均**未做硬件验证**。回滚：`git revert <commit>`。
 
 ---
 
-*文档状态：阶段 2 初稿（合并 6 篇为 1 篇）。涉及行为的问题一律“只记录、不修改”，标注“未做硬件验证”。*
+## 附录 C. 需要人工决策清单
+
+| 编号 | 事项 | 影响 |
+|---|---|---|
+| R2 | `c_Unit` 未初始化（UB） | 未定义行为，建议修复（改行为） |
+| R3 | `Read_Conversion_Value(NULL)` 空指针风险 | 第二次保存可能硬件错误，建议修复（改行为） |
+| R4 | 配置页 `0x0800FC00` 未在链接脚本保留 | 固件增长会与持久化数据冲突 |
+| R5 | ADC 完成回调内做重活 | 实时性/抖动风险 |
+| R13 | 导出符号命名不一致（`updata`/`get_Result`） | 可读性；改名需兼容方案 |
+| R6/R8/R9/R10/R11 | 死代码、UART 中断阻塞、TIM2 悬空中断等 | 清理/加固需评估行为影响 |
+
+> 以上均**只记录、未修改**。修复任何一项都可能改变行为，须由开发者决策并单独验证。
+
+---
+
+*文档定位：面向 AI agent 与人类的**开发协作指南**（自 2026-10 起由“重构治理文档”改写而来）。项目事实、约束与风险仍以本文件为准；行为相关改动一律先确认，未实机验证时标注“未做硬件验证”。*
