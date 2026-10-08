@@ -516,8 +516,8 @@ void OledDriver::init(void)
     OLED_Refresh();
 }
 
-// 文件内唯一实例：constinit 保证常量静态初始化（无动态构造、无 .init_array 项）。
-constinit OledDriver g_oled;
+// 文件内唯一实例：静态存储期实例。
+OledDriver g_oled;
 
 } // namespace
 
