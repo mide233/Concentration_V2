@@ -94,7 +94,7 @@ def remove_stale_files(root: pathlib.Path) -> None:
 
 def check_user_sources(root: pathlib.Path) -> None:
     cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
-    if "Concentration_Conversion.c" not in cmake:
+    if "Concentration_Conversion.cpp" not in cmake:
         print(
             "warning: CMakeLists.txt does not list the user sources; "
             "STM32CubeMX may have overwritten it."
