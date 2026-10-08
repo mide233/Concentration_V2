@@ -5,6 +5,19 @@
  */
 #include "FIFO_LOCKFREE.h"
 
+#include <cstddef>
+#include <type_traits>
+
+// 冻结的队列控制块布局：main.c 通过 FIFO_LOCKFREE_INIT 静态初始化，禁止变更。
+static_assert(std::is_standard_layout_v<fifo_lockfree_t>);
+static_assert(std::is_trivially_copyable_v<fifo_lockfree_t>);
+static_assert(sizeof(fifo_data_t) == 2);
+static_assert(offsetof(fifo_lockfree_t, buf) == 0);
+static_assert(offsetof(fifo_lockfree_t, size) == 4);
+static_assert(offsetof(fifo_lockfree_t, head) == 8);
+static_assert(offsetof(fifo_lockfree_t, tail) == 12);
+static_assert(sizeof(fifo_lockfree_t) == 16);
+
 /*
  * 功能：复位队列为空
  */

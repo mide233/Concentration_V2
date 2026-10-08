@@ -4,14 +4,38 @@
  *       该页未在链接脚本中保留，详见 AGENTS.md 风险 R4。
  */
 #include "Concentration_Conversion.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <type_traits>
+
 // #include "main.h" // [已注释] 原始包含，疑似不再需要，待人工确认
 #include "math.h"
 #include "stm32f1xx_hal.h"
 
-#define CONVERSION_DATA_ADDR 0x0800FC00     // 持久化数据所在 Flash 页的起始地址
-#define CONVERSION_MAGIC 0x12345678         // 持久化数据 magic 校验值（值不可变）
-#define CONVERSION_DEFAULT_RAW_VALUE 0.3f   // magic 无效时返回的默认 Raw_value
-#define CONVERSION_DEFAULT_UVLIGHT_LEVEL 70 // magic 无效时返回的默认 UVlight_level
+namespace {
+
+constexpr uint32_t kConversionDataAddr = 0x0800FC00u; // 持久化数据所在 Flash 页的起始地址
+constexpr uint32_t kConversionMagic = 0x12345678u;    // 持久化数据 magic 校验值（值不可变）
+constexpr float kDefaultRawValue = 0.3f;              // magic 无效时返回的默认 Raw_value
+constexpr uint16_t kDefaultUvLightLevel = 70;         // magic 无效时返回的默认 UVlight_level
+
+// 冻结的结构体布局与枚举值：改动会破坏 Flash 持久化格式或跨 C/C++ 的 ABI。
+static_assert(std::is_standard_layout_v<Conversion_value_t>);
+static_assert(std::is_standard_layout_v<StoredConversion_t>);
+static_assert(sizeof(Conversion_value_t) == 8);
+static_assert(sizeof(StoredConversion_t) == 12);
+static_assert(offsetof(StoredConversion_t, magic) == 0);
+static_assert(offsetof(StoredConversion_t, data) == 4);
+static_assert(sizeof(Concentration_Conversion_t) == 40);
+static_assert(offsetof(Concentration_Conversion_t, Conversion_value) == 28);
+static_assert(offsetof(Concentration_Conversion_t, Conversion_flag) == 36);
+static_assert(static_cast<int>(not_INIT) == 0);
+static_assert(static_cast<int>(ready) == 1);
+static_assert(static_cast<int>(finish) == 2);
+static_assert(static_cast<int>(not_finish) == 3);
+
+} // namespace
 
 /*
  * 功能：从 Flash 读取转换参数
@@ -21,15 +45,15 @@
  */
 uint8_t Read_Conversion_Value(Conversion_value_t *out)
 {
-    StoredConversion_t *stored = (StoredConversion_t *)CONVERSION_DATA_ADDR;
-    if (stored->magic == CONVERSION_MAGIC) // magic 校验通过
+    const StoredConversion_t *stored = reinterpret_cast<const StoredConversion_t *>(kConversionDataAddr);
+    if (stored->magic == kConversionMagic) // magic 校验通过
     {
         *out = stored->data;
         return 1;
     }
     // magic 无效：返回默认值（数值可按需求调整）
-    out->Raw_value = CONVERSION_DEFAULT_RAW_VALUE;
-    out->UVlight_level = CONVERSION_DEFAULT_UVLIGHT_LEVEL;
+    out->Raw_value = kDefaultRawValue;
+    out->UVlight_level = kDefaultUvLightLevel;
     return 0;
 }
 
@@ -43,31 +67,32 @@ uint8_t Read_Conversion_Value(Conversion_value_t *out)
 void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Conversion_t *cc)
 {
     StoredConversion_t buffer;
-    buffer.magic = CONVERSION_MAGIC;
+    buffer.magic = kConversionMagic;
     buffer.data = *val;
     if (cc->Conversion_flag == finish)
     {
         HAL_FLASH_Unlock();
 
         // 判断是否需要先擦除：该地址尚未写入（全 0xFF）或已存在有效数据
-        uint32_t *checkAddr = (uint32_t *)CONVERSION_DATA_ADDR;
-        if (*checkAddr == 0xFFFFFFFF || Read_Conversion_Value(NULL) == 1)
+        const uint32_t *checkAddr = reinterpret_cast<const uint32_t *>(kConversionDataAddr);
+        if (*checkAddr == 0xFFFFFFFF || Read_Conversion_Value(nullptr) == 1)
         {
             // 擦除该页（1 KB）
             FLASH_EraseInitTypeDef erase;
             erase.TypeErase = FLASH_TYPEERASE_PAGES;
-            erase.PageAddress = CONVERSION_DATA_ADDR;
+            erase.PageAddress = kConversionDataAddr;
             erase.NbPages = 1;
             uint32_t pageError = 0;
             HAL_FLASHEx_Erase(&erase, &pageError);
         }
 
         // 按字（32 位）写入结构体数据
-        uint32_t *pSrc = (uint32_t *)&buffer;
-        for (int i = 0; i < (int)(sizeof(StoredConversion_t) / 4); i++)
+        constexpr size_t kWordCount = sizeof(StoredConversion_t) / sizeof(uint32_t);
+        const uint32_t *pSrc = reinterpret_cast<const uint32_t *>(&buffer);
+        for (int i = 0; i < static_cast<int>(kWordCount); i++)
         {
             HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD,
-                              CONVERSION_DATA_ADDR + i * 4,
+                              kConversionDataAddr + i * sizeof(uint32_t),
                               pSrc[i]);
         }
 
@@ -122,10 +147,10 @@ float custom_exp10(float x)
     }
 
     // 3. 计算小数部分：10^fractional（在 [0,1) 上用 4 阶多项式近似）
-    const float c0 = 0.9999999995;
-    const float c1 = 2.302580022;
-    const float c2 = 2.650910053;
-    const float c3 = 5.330199229;
+    constexpr float c0 = 0.9999999995;
+    constexpr float c1 = 2.302580022;
+    constexpr float c2 = 2.650910053;
+    constexpr float c3 = 5.330199229;
 
     float frac_power = c0 + fractional * c1 + fractional * fractional * c2 + fractional * fractional * fractional * c3;
 

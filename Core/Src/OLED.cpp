@@ -4,27 +4,42 @@
  *           再按页通过 I2C 写入 OLED。
  */
 #include "OLED.h"
-#include <string.h>
 
-static uint8_t logic_buffer[512]; // 32x128 逻辑图形缓冲区
-static uint8_t phys_buffer[512];  // 128x32 物理显示缓冲区
-static uint8_t dot_exist = 0;     // 圆点显示标志（由 OLED_Set_Dot 设置）
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+
+namespace {
+
+// 逻辑缓冲（32x128）与物理缓冲（128x32）均按页存放
+constexpr size_t kLogicBufferSize = OLED_LOGIC_WIDTH * (OLED_LOGIC_HEIGHT / 8);
+constexpr size_t kPhysBufferSize = OLED_PHYS_WIDTH * (OLED_PHYS_HEIGHT / 8);
+
+static_assert(kLogicBufferSize == 512);
+static_assert(kPhysBufferSize == 512);
+static_assert(TOP_AREA_HEIGHT + MID_AREA_HEIGHT + BOTTOM_AREA_HEIGHT == OLED_LOGIC_HEIGHT);
+static_assert(OLED_PHYS_WIDTH == 128);
+static_assert(OLED_PHYS_HEIGHT == 32);
+
+uint8_t logic_buffer[kLogicBufferSize]; // 32x128 逻辑图形缓冲区
+uint8_t phys_buffer[kPhysBufferSize];   // 128x32 物理显示缓冲区
+uint8_t dot_exist = 0;                  // 圆点显示标志（由 OLED_Set_Dot 设置）
 
 // 三个区域的起始 Y 坐标（逻辑坐标系）
-#define TOP_START_Y 0
-#define MID_START_Y TOP_AREA_HEIGHT
-#define BOTTOM_START_Y (TOP_AREA_HEIGHT + MID_AREA_HEIGHT)
+constexpr uint8_t TOP_START_Y = 0;
+constexpr uint8_t MID_START_Y = TOP_AREA_HEIGHT;
+constexpr uint8_t BOTTOM_START_Y = TOP_AREA_HEIGHT + MID_AREA_HEIGHT;
 
 // I2C 通信
 /* 写命令字节（控制字节 0x00 + 命令），超时 100 ms */
-static void I2C_WriteCmd(uint8_t cmd)
+void I2C_WriteCmd(uint8_t cmd)
 {
     uint8_t buf[2] = {0x00, cmd};
     HAL_I2C_Master_Transmit(&hi2c1, OLED_ADDR, buf, 2, 100);
 }
 
 /* 写数据字节（控制字节 0x40 + 数据），超时 100 ms */
-static void I2C_WriteData(uint8_t data)
+void I2C_WriteData(uint8_t data)
 {
     uint8_t buf[2] = {0x40, data};
     HAL_I2C_Master_Transmit(&hi2c1, OLED_ADDR, buf, 2, 100);
@@ -32,7 +47,7 @@ static void I2C_WriteData(uint8_t data)
 
 // 图形绘制（逻辑坐标系 32x128）
 /* 画一个像素：color 非 0 置位，否则清零 */
-static void Logic_DrawPixel(uint8_t x, uint8_t y, uint8_t color)
+void Logic_DrawPixel(uint8_t x, uint8_t y, uint8_t color)
 {
     if (x >= OLED_LOGIC_WIDTH || y >= OLED_LOGIC_HEIGHT)
         return;
@@ -46,7 +61,7 @@ static void Logic_DrawPixel(uint8_t x, uint8_t y, uint8_t color)
 }
 
 /* 填充矩形（含边界） */
-static void Logic_FillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t color)
+void Logic_FillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t color)
 {
     for (uint8_t y = y1; y <= y2; y++)
         for (uint8_t x = x1; x <= x2; x++)
@@ -54,7 +69,7 @@ static void Logic_FillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8
 }
 
 /* 画矩形边框（含边界） */
-static void Logic_DrawRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t color)
+void Logic_DrawRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t color)
 {
     for (uint8_t x = x1; x <= x2; x++)
     {
@@ -69,7 +84,7 @@ static void Logic_DrawRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8
 }
 
 // 电池图标（宽 24、高 12，level 为点亮段数 0~5）
-static void Logic_DrawBattery(uint8_t x, uint8_t y, uint8_t level)
+void Logic_DrawBattery(uint8_t x, uint8_t y, uint8_t level)
 {
     Logic_DrawRect(x, y, x + 22, y + 11, 1);
     Logic_FillRect(x + 23, y + 3, x + 24, y + 8, 1);
@@ -83,7 +98,7 @@ static void Logic_DrawBattery(uint8_t x, uint8_t y, uint8_t level)
 }
 
 // 蓝牙图标 16x20
-static const uint8_t bluetooth_16x20[20][16] = {
+constexpr uint8_t bluetooth_16x20[20][16] = {
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -104,6 +119,8 @@ static const uint8_t bluetooth_16x20[20][16] = {
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+static_assert(sizeof(bluetooth_16x20) / sizeof(bluetooth_16x20[0]) == 20);
+
 // [已注释] 以下为旧版蓝牙图标（16x20）定义，疑似废弃，待人工确认（保留原样，勿删）
 //// 蓝牙图标 16x20
 // static const uint8_t bluetooth_16x20[20][16] = {
@@ -129,7 +146,7 @@ static const uint8_t bluetooth_16x20[20][16] = {
 //     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
 // };
 /* 按 show 决定是否绘制蓝牙图标 */
-static void Logic_DrawBluetooth(uint8_t x, uint8_t y, uint8_t show)
+void Logic_DrawBluetooth(uint8_t x, uint8_t y, uint8_t show)
 {
     if (!show)
         return;
@@ -140,7 +157,7 @@ static void Logic_DrawBluetooth(uint8_t x, uint8_t y, uint8_t show)
 }
 
 /* 绘制实心圆点（半径 2 像素，exist 非 0 时绘制） */
-static void Logic_DrawDot(uint8_t x, uint8_t y, uint8_t exist)
+void Logic_DrawDot(uint8_t x, uint8_t y, uint8_t exist)
 {
     if (!exist)
         return;
@@ -151,7 +168,7 @@ static void Logic_DrawDot(uint8_t x, uint8_t y, uint8_t exist)
 }
 
 // 进度条（在指定区域内从下向上填充）
-static void Logic_DrawProgressBar(uint8_t percent, uint8_t start_y, uint8_t area_height)
+void Logic_DrawProgressBar(uint8_t percent, uint8_t start_y, uint8_t area_height)
 {
     uint8_t bar_height = area_height - 20;
     if (bar_height < 8)
@@ -176,9 +193,9 @@ static void Logic_DrawProgressBar(uint8_t percent, uint8_t start_y, uint8_t area
 }
 
 // 软件旋转：逻辑 32x128 顺时针旋转 90° -> 物理 128x32
-static void RotateLogicToPhysical(void)
+void RotateLogicToPhysical(void)
 {
-    memset(phys_buffer, 0, sizeof(phys_buffer));
+    std::memset(phys_buffer, 0, sizeof(phys_buffer));
     for (uint8_t ly = 0; ly < OLED_LOGIC_HEIGHT; ly++)
     {
         for (uint8_t lx = 0; lx < OLED_LOGIC_WIDTH; lx++)
@@ -200,7 +217,7 @@ static void RotateLogicToPhysical(void)
 }
 
 // ========== 字体表（8x16，正立）==========
-static const uint8_t font8x16[][16] = {
+constexpr uint8_t font8x16[][16] = {
     {0x00, 0x00, 0x3C, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00, 0x00, 0x00}, // 0
     {0x00, 0x00, 0x08, 0x18, 0x28, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x3E, 0x00, 0x00, 0x00}, // 1
     {0x00, 0x00, 0x3C, 0x42, 0x42, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x42, 0x7E, 0x00, 0x00, 0x00}, // 2
@@ -216,9 +233,10 @@ static const uint8_t font8x16[][16] = {
     {0x00, 0x00, 0x42, 0x44, 0x48, 0x50, 0x60, 0x50, 0x48, 0x44, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00}, // K
     {0x00, 0x00, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}  // !
 };
+static_assert(sizeof(font8x16) / sizeof(font8x16[0]) == 14);
 
 // 绘制正立字符（不旋转）；仅支持数字 0-9 及 % O K !
-static void Phys_DrawCharNormal(uint8_t x, uint8_t y, char ch, uint8_t color)
+void Phys_DrawCharNormal(uint8_t x, uint8_t y, char ch, uint8_t color)
 {
     if (x + 8 > OLED_PHYS_WIDTH || y + 16 > OLED_PHYS_HEIGHT)
         return;
@@ -259,7 +277,7 @@ static void Phys_DrawCharNormal(uint8_t x, uint8_t y, char ch, uint8_t color)
 }
 
 // 绘制侧躺字符（顺时针旋转 90°，并按 TEXT_MIRROR_H/V 做镜像调整）
-static void Phys_DrawCharRotated(uint8_t x, uint8_t y, char ch, uint8_t color)
+void Phys_DrawCharRotated(uint8_t x, uint8_t y, char ch, uint8_t color)
 {
     if (x + 16 > OLED_PHYS_WIDTH || y + 8 > OLED_PHYS_HEIGHT)
         return;
@@ -308,7 +326,7 @@ static void Phys_DrawCharRotated(uint8_t x, uint8_t y, char ch, uint8_t color)
 
 // 水平绘制正立字符串（TEXT_MODE==1 时使用）
 // 注意：当前 TEXT_MODE==0，本函数未被调用（编译器报 unused），保留待用。
-static void Phys_DrawHorizontalString(uint8_t x, uint8_t y, const char *str, uint8_t color)
+void Phys_DrawHorizontalString(uint8_t x, uint8_t y, const char *str, uint8_t color)
 {
     uint8_t x_offset = 0;
     while (*str)
@@ -321,7 +339,7 @@ static void Phys_DrawHorizontalString(uint8_t x, uint8_t y, const char *str, uin
 }
 
 // 竖直绘制侧躺字符串（TEXT_MODE==0 时使用；每个字符侧躺，从上到下排列，可反转顺序）
-static void Phys_DrawVerticalRotatedString(uint8_t x, uint8_t y, const char *str, uint8_t color)
+void Phys_DrawVerticalRotatedString(uint8_t x, uint8_t y, const char *str, uint8_t color)
 {
     // 若启用 TEXT_REVERSE_ORDER，则先复制并反转字符串
     char reversed[5];
@@ -348,6 +366,8 @@ static void Phys_DrawVerticalRotatedString(uint8_t x, uint8_t y, const char *str
     }
 }
 
+} // namespace
+
 /*
  * 功能：刷新一帧画面
  * 参数：battery_level - 电量等级（0~5）；bluetooth_state - 蓝牙状态；percent - 进度百分比
@@ -355,7 +375,7 @@ static void Phys_DrawVerticalRotatedString(uint8_t x, uint8_t y, const char *str
  */
 void OLED_Update(uint8_t battery_level, uint8_t bluetooth_state, uint8_t percent)
 {
-    memset(logic_buffer, 0, sizeof(logic_buffer));
+    std::memset(logic_buffer, 0, sizeof(logic_buffer));
 
     uint8_t top_center_y = TOP_START_Y + TOP_AREA_HEIGHT / 2;
     Logic_DrawBattery(4, top_center_y - 6, battery_level);
@@ -408,8 +428,8 @@ void OLED_Set_Dot(uint8_t exist)
 /* 清空逻辑与物理缓冲区 */
 void OLED_Clear(void)
 {
-    memset(logic_buffer, 0, sizeof(logic_buffer));
-    memset(phys_buffer, 0, sizeof(phys_buffer));
+    std::memset(logic_buffer, 0, sizeof(logic_buffer));
+    std::memset(phys_buffer, 0, sizeof(phys_buffer));
 }
 
 /* 将物理缓冲区按页写入 OLED */
