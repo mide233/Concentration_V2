@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * 无锁单生产者-单消费者（SPSC）环形队列。
  * 约束：读索引仅由消费者（主循环）修改，写索引仅由生产者（中断）修改；
@@ -40,5 +44,9 @@ bool fifo_lockfree_is_full(const fifo_lockfree_t *fifo);           // 是否已�
 bool fifo_lockfree_put(fifo_lockfree_t *fifo, fifo_data_t data);   // 写入一个元素（生产者调用）
 bool fifo_lockfree_get(fifo_lockfree_t *fifo, fifo_data_t *data);  // 读取一个元素（消费者调用）
 uint_fast8_t fifo_lockfree_available(const fifo_lockfree_t *fifo); // 已用元素个数
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

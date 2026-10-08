@@ -4,6 +4,10 @@
 #include "main.h"
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * SSD1306 OLED（128x32，I2C1）驱动。
  * 采用“逻辑坐标系 32x128”绘制，再软件旋转为物理 128x32 输出。
@@ -49,5 +53,9 @@ void OLED_Update(uint8_t battery_level, uint8_t bluetooth_state, uint8_t percent
 void OLED_Set_Dot(uint8_t exist);                                                   // 设置右上角圆点指示
 void OLED_Clear(void);                                                              // 清空缓冲区
 void OLED_Refresh(void);                                                            // 将缓冲区写入 OLED
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

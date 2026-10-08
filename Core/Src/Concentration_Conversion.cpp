@@ -64,7 +64,7 @@ void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Convers
 
         // 按字（32 位）写入结构体数据
         uint32_t *pSrc = (uint32_t *)&buffer;
-        for (int i = 0; i < sizeof(StoredConversion_t) / 4; i++)
+        for (int i = 0; i < (int)(sizeof(StoredConversion_t) / 4); i++)
         {
             HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD,
                               CONVERSION_DATA_ADDR + i * 4,

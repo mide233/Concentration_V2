@@ -13,6 +13,12 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
+# C++ standard for the user modules. Kept here (not in the CubeMX-generated
+# toolchain file) so a CubeMX regeneration cannot reset it.
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 # Define the build type
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug")
@@ -39,9 +45,9 @@ add_subdirectory(cmake/stm32cubemx)
 
 # User sources (not managed by STM32CubeMX)
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    Core/Src/Concentration_Conversion.c
-    Core/Src/FIFO_LOCKFREE.c
-    Core/Src/OLED.c
+    Core/Src/Concentration_Conversion.cpp
+    Core/Src/FIFO_LOCKFREE.cpp
+    Core/Src/OLED.cpp
 )
 
 # User include paths
@@ -60,6 +66,10 @@ list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
 )
+
+# User modules are C++; link the image with the C++ driver so C++ runtime
+# helpers resolve (exceptions/RTTI stay disabled, see the toolchain file).
+set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 
 # Generate the binary artifacts consumed by flashing/debugging tooling
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD

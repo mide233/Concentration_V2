@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* 时间单位（换算系数在 Concentration_Conversion_init 中设置） */
 typedef enum {
     ms = 1,
@@ -72,5 +76,9 @@ float get_Result(Concentration_Conversion_t *cc);
 bool Concentration_Conversion_calibration(Concentration_Conversion_t *cc, float current, float delta_time);
 void Concentration_Conversion_Reset(Concentration_Conversion_t *cc);
 float Get_Concentration_Conversion_Detection_Time(Concentration_Conversion_t *cc);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
