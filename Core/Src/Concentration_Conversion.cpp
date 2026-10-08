@@ -35,6 +35,21 @@ static_assert(static_cast<int>(ready) == 1);
 static_assert(static_cast<int>(finish) == 2);
 static_assert(static_cast<int>(not_finish) == 3);
 
+/*
+ * RAII：构造时解锁 Flash，析构（离开作用域）时重新上锁。
+ * 与原先手写的 HAL_FLASH_Unlock() / HAL_FLASH_Lock() 时序完全一致
+ * （二者之间无提前返回/异常路径）。禁止拷贝，避免重复解锁/上锁。
+ */
+class FlashWriteGuard
+{
+public:
+    FlashWriteGuard() { HAL_FLASH_Unlock(); }
+    ~FlashWriteGuard() { HAL_FLASH_Lock(); }
+
+    FlashWriteGuard(const FlashWriteGuard &) = delete;
+    FlashWriteGuard &operator=(const FlashWriteGuard &) = delete;
+};
+
 } // namespace
 
 /*
@@ -71,7 +86,7 @@ void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Convers
     buffer.data = *val;
     if (cc->Conversion_flag == finish)
     {
-        HAL_FLASH_Unlock();
+        FlashWriteGuard flash_guard; // 构造时解锁；离开本作用域时自动上锁
 
         // 判断是否需要先擦除：该地址尚未写入（全 0xFF）或已存在有效数据
         const uint32_t *checkAddr = reinterpret_cast<const uint32_t *>(kConversionDataAddr);
@@ -95,8 +110,6 @@ void Write_Conversion_Value(const Conversion_value_t *val, Concentration_Convers
                               kConversionDataAddr + i * sizeof(uint32_t),
                               pSrc[i]);
         }
-
-        HAL_FLASH_Lock();
     }
 }
 
