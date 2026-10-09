@@ -21,8 +21,23 @@ class UartReceiver {
 public:
     void start()               // 启动 DMA 接收并使能 IDLE 中断
     {
+        /* 清除上电期间可能已锁存的溢出/错误标志：模块在 DMA 装配前即可能已发送数据，
+         * 令 USART1 SR 的 ORE 置位；若不清除，HAL_UART_IRQHandler 会在错误中断中调用
+         * UART_EndRxTransfer 中止循环 DMA 且不再重启（接收永久失效）。*/
+        __HAL_UART_CLEAR_OREFLAG(&huart1);
+
+        prevPos_ = 0;
         HAL_UART_Receive_DMA(&huart1, dmaBuffer_, RX_BUFFER_SIZE);
         __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+    }
+
+    // 接收错误恢复（由 HAL_UART_ErrorCallback 在中断上下文调用）：
+    // 仅清除错误标志并置重启请求，实际重启延迟到主循环 poll() 执行，避免在 ISR 内
+    // 重入 HAL 的 DMA 装配流程。
+    void onError()
+    {
+        __HAL_UART_CLEAR_OREFLAG(&huart1);
+        needRestart_ = true;
     }
 
     void handleIdleInterrupt() // USART1 IDLE 中断处理（仅清标志 + 置挂起位）
@@ -37,6 +52,12 @@ public:
 
     void poll() // 主循环：完成帧长度计算与数据拷贝
     {
+        /* 接收链路自愈：错误中断可能中止了循环 DMA，在此重新装配。 */
+        if (needRestart_) {
+            needRestart_ = false;
+            start();
+        }
+
         if (!framePending_) {
             return;
         }
@@ -88,6 +109,7 @@ private:
     uint8_t workBuffer_[RX_BUFFER_SIZE]; // 帧处理工作缓冲区
     uint16_t frameLen_;                  // 当前帧长度
     uint16_t prevPos_;                   // 上次处理时的 DMA 写位置
+    volatile bool needRestart_;          // 错误中断请求重启接收 DMA
 };
 
 inline UartReceiver g_uartReceiver;

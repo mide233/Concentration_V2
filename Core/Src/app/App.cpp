@@ -259,3 +259,6 @@ extern "C" void UartReceiver_HandleIdle(void) { app::g_uartReceiver.handleIdleIn
 
 /* HAL UART 发送完成回调：驱动蓝牙发送队列。 */
 extern "C" void HAL_UART_TxCpltCallback(UART_HandleTypeDef*) { app::g_bluetooth.onTxComplete(); }
+
+/* HAL UART 错误回调：溢出等错误会中止循环 RX DMA，此处请求主循环重新装配。 */
+extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef*) { app::g_uartReceiver.onError(); }
