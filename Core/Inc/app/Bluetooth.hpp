@@ -29,6 +29,7 @@ inline constexpr uint16_t kNameMax = 16;               // 设备名缓冲
 inline constexpr uint32_t kAtTimeoutMs = 500;          // AT 指令应答超时
 inline constexpr uint8_t kAtRetries = 3;               // AT 探测重试次数
 inline constexpr uint32_t kBootWaitMs = 800;           // 上电等待模块就绪
+inline constexpr uint32_t kReprobeMs = 2000;           // 未配置成功时的重试间隔
 inline constexpr char kLineEnd = '\n';                 // 文本行结束符
 inline constexpr char kNamePrefix[] = "CONC_";         // 设备名前缀
 inline constexpr uint32_t kUidBase = 0x1FFFF7E8u;      // STM32F103 96-bit UID
@@ -50,6 +51,7 @@ public:
         atReplied_ = false;
         atOk_ = false;
         connected_ = false;
+        configured_ = false;
         phase_ = AtPhase::BootWait;
         phaseStart_ = HAL_GetTick();
         cmdStart_ = phaseStart_;
@@ -208,10 +210,15 @@ private:
     }
 
     // 依据文本判定连接状态（DISCONN 优先于 CONN）；识别到状态文本返回 true。
+    // 仅识别模块状态行（以 '+' 开头），避免把对端数据中恰好含 conn 的行误判。
     bool applyStatus(const char* s) {
+        if (s == nullptr || s[0] != '+') {
+            return false;
+        }
         if (containsCi(s, "disconn")) {
             connected_ = false;
             phase_ = AtPhase::Idle;
+            phaseStart_ = nowMs();
             return true;
         }
         if (containsCi(s, "conn")) {
@@ -339,7 +346,8 @@ private:
                 startSetName();
             } else if (nowMs() - cmdStart_ >= kAtTimeoutMs) {
                 if (++atRetries_ >= kAtRetries) {
-                    phase_ = AtPhase::Idle; // 无应答：被动等待状态文本
+                    phase_ = AtPhase::Idle; // 无应答：被动等待，稍后重试配置
+                    phaseStart_ = nowMs();
                 } else {
                     startProbe();
                 }
@@ -359,11 +367,22 @@ private:
         case AtPhase::EnableLog:
             if (atOk_ || nowMs() - cmdStart_ >= kAtTimeoutMs) {
                 atOk_ = false;
+                configured_ = true; // 配置流程走完（含超时兜底）
                 phase_ = AtPhase::Idle;
+                phaseStart_ = nowMs();
             }
             break;
 
         case AtPhase::Idle:
+            // 冷启动时模块可能尚未就绪导致首轮配置失败；在未连接、未配置成功的
+            // 情况下周期重试，保证上电后最终能完成 AT 配置（不阻塞启动）。
+            if (!configured_ && !connected_ && nowMs() - phaseStart_ >= kReprobeMs) {
+                atRetries_ = 0;
+                phase_ = AtPhase::Probe;
+                startProbe();
+            }
+            break;
+
         case AtPhase::Connected:
         default:
             break;
@@ -394,6 +413,7 @@ private:
     uint32_t phaseStart_;
     uint32_t cmdStart_;
     bool connected_;
+    bool configured_;
     char deviceName_[kNameMax];
 };
 
