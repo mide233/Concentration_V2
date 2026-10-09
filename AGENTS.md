@@ -34,7 +34,7 @@
 ### 0.3 开发惯例（鼓励遵循）
 - 按项目既有风格与 `.clang-format` 编写；可格式化**正在修改的文件**（不要顺手全仓格式化）。
 - 文件编码 **UTF-8**、行尾 **CRLF**（照现有文件），缩进 4 空格。
-- 用户 C++ 模块放 `Core/Inc/app/` 与 `Core/Src/app/`（`.hpp`/`.cpp`），并在根 `CMakeLists.txt` 用户源列表登记（见 [3.2](#32-构建命令对应-vscodetasksjson)）。
+- 用户 C++ 模块放 `Core/Inc/app/`（header-only `.hpp`，类内定义；常量 `inline constexpr`）；仅 `Core/Src/app/App.cpp` 为 C++ 编译单元，在根 `CMakeLists.txt` 用户源列表登记（见 [3.2](#32-构建命令对应-vscodetasksjson)）。
 - 命名规范（见 [4.9](#49-c-使用规范)）：类型/枚举 PascalCase、方法 camelCase、常量 `k` 前缀、全局单例 `g_`、`namespace app`。
 - 复用小而专的模块（`Hardware`/`AppConfig` 等），不自创并行机制。
 
@@ -61,7 +61,7 @@
 - 通过 **ADC1（PA0 光电流 / PA1 电池分压）** 采样，DMA 循环搬运。
 - 通过 **I2C1 SSD1306 OLED（128×32）** 显示电量、蓝牙状态、进度条与文本。
 - 通过 **TIM2**（1 kHz）产生 ADC 触发（CH2，TRGO=OC2REF）与 UV 灯 PWM（CH4）。
-- 通过 **USART1（9600）** 接收上位机数据帧（IDLE+DMA；收帧输出当前无消费者，见 R6）。
+- 通过 **USART1（9600）** 连接 **JDY-31 蓝牙模块**（IDLE+DMA 收帧；AT 配置 + 文本行协议收发 + 连接状态检测，见 `app/Bluetooth.hpp`；R6 已消除）。
 - 按键/开关：`TILT=PA2`、`KEY=PA7`、`SW=PA8`；充电/待机指示 `STDBY=PB4`、`CHRG=PB5`；负载控制 `DC_ctrl=PB8`；状态灯 `LED=PB12`。
 - 校准结果持久化到 Flash 末页绝对地址 `0x0800FC00`。
 
@@ -74,13 +74,12 @@ Concentration_V2/
 │   │          App.h                                          // C ABI 接缝
 │   │   └── app/   AppConfig.hpp, Hardware.hpp, Measurement.hpp, Persistence.hpp,
 │   │              BatteryMonitor.hpp, InputDebounce.hpp, AppState.hpp,
-│   │              OledPanel.hpp, Display.hpp, UartReceiver.hpp   // C++20 用户模块
+│   │              OledPanel.hpp, Display.hpp, UartReceiver.hpp,
+│   │              Bluetooth.hpp                             // C++20 用户模块（header-only）
 │   └── Src/   main.c, adc.c, dma.c, gpio.c, i2c.c, tim.c, usart.c,
 │              stm32f1xx_it.c, stm32f1xx_hal_msp.c,
 │              syscalls.c, sysmem.c, system_stm32f1xx.c,      // C（CubeMX 生成/保留）
-│              App.cpp                                        // C++20 用户模块
-│       └── app/   Measurement.cpp, Persistence.cpp, BatteryMonitor.cpp,
-│                  Display.cpp, OledPanel.cpp, UartReceiver.cpp
+│              App.cpp                                        // C++20 用户模块（唯一 C++ TU）
 ├── Drivers/        STM32F1xx_HAL_Driver + CMSIS（第三方，勿改）
 ├── cmake/          gcc-arm-none-eabi.cmake（工具链）、stm32cubemx/CMakeLists.txt（CubeMX 生成）
 ├── tools/          openocd.cfg
@@ -116,17 +115,18 @@ main():
 | 模块 | 文件 | 职责 |
 |---|---|---|
 | 启动/胶水 | `Core/Src/main.c` (C) | CubeMX 初始化编排；仅调用 `App_Init()` 与主循环 `App_Poll()` |
-| 应用编排 | `Core/Src/App.cpp` + `Core/Inc/App.h` (**C++20**) | `app::App`：组合各模块，在主循环 `poll()`/`processAdc()` 推进业务与状态机，中断仅做样本快照；对外 C 接缝 |
+| 应用编排 | `Core/Src/app/App.cpp` + `Core/Inc/App.h` (**C++20**) | `app::App`：组合各模块，在主循环 `poll()`/`processAdc()` 推进业务与状态机，中断仅做样本快照；对外 C 接缝 |
 | 配置常量 | `app/AppConfig.hpp` | ADC 通道数/样本数、电池 V_MAX/V_MIN、检测时间、UV 关闭等级、消抖阈值 |
 | 硬件操作 | `app/Hardware.hpp` | `setUvLevel()` / `dcCtrlOn()` / `dcCtrlOff()` 内联封装 |
-| 测量/校准 | `app/Measurement.hpp/.cpp` | `app::Measurement`：校准/测量积分状态机（原 `Concentration_Conversion`） |
-| 持久化 | `app/Persistence.hpp/.cpp` | `app::PersistentStore` + `ConversionValue`/`ConversionFlag`，Flash 读写、RAII 解锁 |
-| 电池监视 | `app/BatteryMonitor.hpp/.cpp` | `app::BatteryMonitor`：电池 ADC、充电/待机状态、电量等级映射 |
+| 测量/校准 | `app/Measurement.hpp` | `app::Measurement`：校准/测量积分状态机（原 `Concentration_Conversion`） |
+| 持久化 | `app/Persistence.hpp` | `app::PersistentStore` + `ConversionValue`/`ConversionFlag`，Flash 读写、RAII 解锁 |
+| 电池监视 | `app/BatteryMonitor.hpp` | `app::BatteryMonitor`：电池 ADC、充电/待机状态、电量等级映射 |
 | 按键消抖 | `app/InputDebounce.hpp` | `app::InputDebounce`：SW/KEY/TILT 通用消抖 |
 | 应用数据 | `app/AppState.hpp` | `WorkState`、`Inputs`、`AppData` 聚合 |
-| 显示底层 | `app/OledPanel.hpp/.cpp` | `app::OledPanel`：SSD1306 128×32 I2C 底层驱动 |
-| 显示界面 | `app/Display.hpp/.cpp` | `app::Display`：电池/蓝牙/圆点/进度条/文字的绘制与旋转 |
-| 串口接收 | `app/UartReceiver.hpp/.cpp` | `app::UartReceiver`：IDLE+DMA 收帧（R8：中断仅清标志+置挂起，拷贝在主循环 `poll()`） |
+| 显示底层 | `app/OledPanel.hpp` | `app::OledPanel`：SSD1306 128×32 I2C 底层驱动 |
+| 显示界面 | `app/Display.hpp` | `app::Display`：电池/蓝牙/圆点/进度条/文字的绘制与旋转 |
+| 串口接收 | `app/UartReceiver.hpp` | `app::UartReceiver`：IDLE+DMA 收帧（R8：中断仅清标志+置挂起，拷贝在主循环 `poll()`；`takeFrame()` 供消费） |
+| 蓝牙链路 | `app/Bluetooth.hpp` | `app::BluetoothLink`：JDY-31 AT 配置、文本行协议收发、连接状态（ENLOG）检测 |
 | 中断 | `Core/Src/stm32f1xx_it.c` (C) | 异常/中断处理，调用 `UartReceiver_HandleIdle()` 与 HAL |
 | 外设初始化 | `adc.c/dma.c/gpio.c/i2c.c/tim.c/usart.c` (C) | CubeMX 生成，与 `.ioc` 一致（勿改） |
 
@@ -158,7 +158,7 @@ openocd -f tools/openocd.cfg -c "program build/Debug/Concentration_V2.elf verify
         │  updateWorkStatus / averageFiltering / ...    │
         └──┬────────┬─────────┬─────────┬───────┬───────┘
            ▼        ▼         ▼         ▼       ▼
-     Measurement Display  Battery   Inputs  UartReceiver
+     Measurement Display  Battery   Inputs  UartReceiver ─► BluetoothLink
      (+Persistence) OledPanel Monitor  (Debounce)
            │        │
            ▼        ▼
@@ -168,10 +168,11 @@ openocd -f tools/openocd.cfg -c "program build/Debug/Concentration_V2.elf verify
       CMSIS/启动/链接脚本
 
    中断: stm32f1xx_it.c ──► HAL ──► HAL_ADC_ConvCpltCallback (App.cpp)
-                            USART1 ─► UartReceiver_HandleIdle (UartReceiver.cpp)
+                            USART1 ─► UartReceiver_HandleIdle (定义于 App.cpp)
+                                      HAL_UART_TxCpltCallback (App.cpp) ─► BluetoothLink::onTxComplete
 ```
-- `app::g_app` 为文件级单例，持有 `AppData` 与 `Display`；`main.c` 不保存业务状态。
-- C ABI 接缝共 5 个函数：`App_Init`、`App_UpdateDisplay`、`App_Poll`、`HAL_ADC_ConvCpltCallback`、`UartReceiver_HandleIdle`（另保留未使用的 `battery_level`，见 4.9）。
+- `app::g_app` 为文件级单例，持有 `AppData` 与 `Display`；`main.c` 不保存业务状态。`app::g_bluetooth` 为蓝牙链路单例。
+- C ABI 接缝：`App_Init`、`App_UpdateDisplay`、`App_Poll`、`HAL_ADC_ConvCpltCallback`、`UartReceiver_HandleIdle`（另保留未使用的 `battery_level`，见 4.9）；此外 App.cpp 还定义 HAL 回调 `HAL_UART_TxCpltCallback`（转发至 `app::g_bluetooth.onTxComplete()`）。
 - `main.h` 仅保留 CubeMX 引脚宏、`RX_BUFFER_SIZE` 与 `Error_Handler` 声明；业务类型已迁至 `app/AppState.hpp`。
 
 ### 2.2 数据流（主链路）
@@ -186,12 +187,14 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> AppData::adcValue[20]
         └─ battery.setAdc(adcAvg[1]) (电池电压)
         runMeasurementTask()                                  // 校准/测量/保存
         SW/TILT/KEY 消抖（读值≠缓存值累加，>5 次翻转状态）
-主循环: App_Poll() --(每 kDisplayPeriodMs)--> Display::update(battery.level(), bluetooth_state=1, progress)
+主循环: App_Poll() --(每 kDisplayPeriodMs)--> Display::update(battery.level(), g_bluetooth.connected(), progress)
         App_Poll() --(UART 挂起)--> UartReceiver::poll()   // R8：帧长度计算与拷贝
+        App_Poll() --> BluetoothLink::poll()                // 消费 takeFrame()，AT 状态机/文本行收发/回显
 ```
 - 屏幕进度 `progress`：校准/测量中来自 `Measurement::detectionTime()`，否则来自 `battery.adc()/V_MAX*100`（当 `BattStatus != Normal`）。
 - 电池电量 `battery.level()` 历史上从不被自动计算（保持原行为），因此未显式设置时显示为 0。
-- `App::poll()` 每轮处理一次挂起的 ADC 快照（与历史“每次 DMA 完成处理一次”节拍一致），并调用 `UartReceiver::poll()`；显示与 UART 处理均在主循环上下文，不阻塞中断。
+- 蓝牙图标状态由 `BluetoothLink::connected()` 提供（ENLOG 文本解析），不再是硬编码常量。
+- `App::poll()` 每轮处理一次挂起的 ADC 快照（与历史“每次 DMA 完成处理一次”节拍一致），并调用 `UartReceiver::poll()` 与 `BluetoothLink::poll()`；显示、UART 与蓝牙处理均在主循环上下文，不阻塞中断。
 
 ### 2.3 控制流 / 状态机
 `app::WorkState`（`enum class : uint8_t`）：`Init, Save, Calibration, Working, Ready, ErrTilt, ErrOpen, ErrLowPower, ErrNoContainer`（数值 0..8 与原枚举一致）。
@@ -217,7 +220,7 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> AppData::adcValue[20]
 |---|---|
 | ADC1 | 扫描使能、非连续、外部触发 `T2_CC2`、2 通道：PA0(IN0,rank1)、PA1(IN1,rank2)，71.5 周期，DMA1_Ch1 循环半字 |
 | TIM2 | PSC=71，ARR=999（1 kHz）；CH2 PWM 脉宽 500，TRGO=OC2REF；CH4 PWM 脉宽 0（UV 灯，`4*level`） |
-| USART1 | 9600 8N1，RX→DMA1_Ch5 循环字节，TX→DMA1_Ch4 单次字节，开 IDLE 中断 |
+| USART1 | 9600 8N1，RX→DMA1_Ch5 循环字节，TX→DMA1_Ch4 单次字节，开 IDLE 中断；外接 **JDY-31**（9600 8N1，`app/Bluetooth.hpp` 驱动） |
 | I2C1 | 100 kHz，7 位地址；PB6/PB7 AF_OD |
 | GPIO | TILT=PA2、KEY=PA7、SW=PA8（输入浮空）；LED=PB12（输出开漏）；STDBY=PB4、CHRG=PB5（输入浮空）；DC_ctrl=PB8（推挽输出） |
 | SWJ | `__HAL_AFIO_REMAP_SWJ_NOJTAG()`（保留 SWD） |
@@ -226,7 +229,7 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> AppData::adcValue[20]
 
 ### 2.6 持久化（Flash）
 - 绝对地址 `0x0800FC00`（Flash 最后一页，1 KB）。
-- 结构：`app::ConversionValue { float rawValue; uint16_t uvLightLevel; }`，持久化外壳 `StoredConversion { uint32_t magic(=0x12345678); ConversionValue data; }`，按字（32 位）编程；常量 `kDataAddress`/`kMagic` 及默认值（`0.3f`/`70`）在 `app/Persistence.cpp` 内。
+- 结构：`app::ConversionValue { float rawValue; uint16_t uvLightLevel; }`，持久化外壳 `StoredConversion { uint32_t magic(=0x12345678); ConversionValue data; }`，按字（32 位）编程；常量 `kDataAddress`/`kMagic` 及默认值（`0.3f`/`70`）在 `app/Persistence.hpp` 的 `namespace app::detail` 内。
 - `PersistentStore::load()` 读时校验 magic，无效则给默认值；`save()` 仅在 `ConversionFlag::Finished` 时擦除该页并写入。
 - **R3 已修复（S2）**：写前判断改用 `hasValidMagic()`，不再解引用空指针。
 - **R4 已修复（S8）**：`STM32F103XX_FLASH.ld` 将 `FLASH LENGTH` 由 64K 改为 **63K**，保留 `0x0800FC00–0x0800FFFF`；`.scripts/patch_cubemx` 的 `patch_linker()` 会在 CubeMX 重新生成后强制恢复该值。
@@ -258,7 +261,7 @@ openocd -f tools/openocd.cfg -c "program build/Debug/Concentration_V2.elf verify
 openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset run; shutdown"  # 全片擦除
 ```
 - 预设见 `CMakePresets.json`：生成器 Ninja，工具链文件 `cmake/gcc-arm-none-eabi.cmake`，`CMAKE_EXPORT_COMPILE_COMMANDS=ON`。
-- **CubeMX 会重写 `cmake/stm32cubemx/CMakeLists.txt`**；用户源在根 `CMakeLists.txt` 中登记（当前：`Core/Src/app/Persistence.cpp`、`Measurement.cpp`、`BatteryMonitor.cpp`、`Display.cpp`、`OledPanel.cpp`、`UartReceiver.cpp`、`Core/Src/App.cpp`；用户 include：`Core/Inc`、`Core/Inc/app`）。
+- **CubeMX 会重写 `cmake/stm32cubemx/CMakeLists.txt`**；用户源在根 `CMakeLists.txt` 中登记（当前唯一用户源：`Core/Src/app/App.cpp`；用户 include：`Core/Inc`、`Core/Inc/app`）。其余用户模块为 header-only，不单独编译。
 - `python3 .scripts/patch_cubemx`（幂等）会：重写 `CMakePresets.json` 为规范预设、规范化 `cmake/stm32cubemx/CMakeLists.txt` 路径前缀、**强制链接脚本保留区（FLASH 63K）**、删除陈旧 `cmake/starm-clang.cmake`，并在根 `CMakeLists.txt` 未登记用户源时告警。
 
 ### 3.3 编译配置
@@ -273,9 +276,9 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 ### 3.5 常见问题
 - **`clang` 不存在**：本环境只有 `clang-tidy`/`clang-format`，无 `clang`。
 - **`.clangd` 依赖编译数据库**：`.clangd` 配置为 `CompilationDatabase: build/Debug`，须先执行 `cmake --preset Debug` 生成，否则 IDE 报错。
-- **C++ 模块**：用户模块为 `.hpp`/`.cpp`，被 C 包含的头文件需 `extern "C"` 守卫；不要引入 `std::array`/STL（会带入 libstdc++/printf/malloc，见 [4.9](#49-c-使用规范)）。
+- **C++ 模块**：用户模块为 header-only `.hpp`（声明与定义一体，类内定义；常量 `inline constexpr`），唯一编译单元为 `Core/Src/app/App.cpp`；被 C 包含的头文件需 `extern "C"` 守卫；不要引入 `std::array`/STL（会带入 libstdc++/printf/malloc，见 [4.9](#49-c-使用规范)）。
 - **CubeMX 重新生成后**：必须运行 `python3 .scripts/patch_cubemx`（否则 include 路径/预设/链接脚本保留区可能回退）。
-- **新增/移动用户文件**：需同步根 `CMakeLists.txt` 用户源列表。
+- **新增/移动用户文件**：header-only 模块无需改 CMake（仅 `Core/Src/app/App.cpp` 被编译）；仅当新增独立编译单元时才同步根 `CMakeLists.txt` 用户源列表。
 - **构建目录**：`build/Debug`、`build/Release` 均在 gitignore 内。
 
 ---
@@ -290,8 +293,8 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 - `main.c` 的 `USER CODE` 仅保留薄钩子（`App_Init()` / 主循环 `App_Poll()`）。
 
 ### 4.2 新增/修改用户模块
-1. 在 `Core/Inc/app/` 建 `.hpp`、`Core/Src/app/` 建 `.cpp`（UTF-8 + CRLF）。
-2. 在根 `CMakeLists.txt` 的用户源列表加入新 `.cpp`（include 路径 `Core/Inc/app` 已包含）。
+1. 在 `Core/Inc/app/` 建 `.hpp`（UTF-8 + CRLF），类内定义方法、`namespace app` 内 `inline constexpr` 常量；header-only，通常无需新建 `.cpp`。
+2. 仅当新增独立编译单元时才在根 `CMakeLists.txt` 用户源列表登记（当前唯一用户源 `Core/Src/app/App.cpp`；include 路径 `Core/Inc/app` 已包含）。
 3. 头文件用保护宏（非保留标识符，如 `APP_MODULE_HPP`）；若会被 C 代码包含，必须加 `extern "C"` 守卫（见 [4.9](#49-c-使用规范)）。
 4. 需要访问 HAL 时 `#include "main.h"` 或对应外设头；遵守 C++ 零开销子集与禁堆/禁异常策略。
 5. `cmake --preset Debug && cmake --build --preset Debug` 验证；检查导出符号与尺寸基线（见 4.7）。
@@ -302,9 +305,9 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 - 新增中断需补 `stm32f1xx_it.c` 的对应 handler（CubeMX 会生成骨架）；复杂逻辑应委托给 `app/` 模块并保持 ISR 简短（见 R5）。
 
 ### 4.4 调整显示
-- 界面组合入口 `app::Display::update(batteryLevel, bluetoothState, percent)`；`App::updateDisplay()` 调用（`bluetoothState` 固定为 1）。
-- `app::Display` 负责布局/旋转/文字：逻辑坐标 32×128，旋转为物理 128×32；区域高度 `kTopAreaHeight=15`/`kMidAreaHeight=15`/`kBottomAreaHeight=98`；文字参数为 `Display.cpp` 匿名命名空间常量。
-- 字体/位图为 `Display.cpp` 内 `constexpr` 数组；新增字符需更新 `glyphIndex` 与字模表。
+- 界面组合入口 `app::Display::update(batteryLevel, bluetoothState, percent, msg, is_err)`；`App::updateDisplay()` 中 `bluetoothState` 取自 `app::g_bluetooth.connected()`（不再固定为 1）。
+- `app::Display` 负责布局/旋转/文字：逻辑坐标 32×128，旋转为物理 128×32；区域高度 `kTopAreaHeight=15`/`kMidAreaHeight=15`/`kBottomAreaHeight=98`；文字参数为 `Display.hpp` 内 `namespace app` 的 `inline constexpr`（`kTextPosX`/`kTextPosY`/`kTextCharSpacing`）。
+- 字体/位图为 `Display.hpp` 内 `inline constexpr` 数组（`kFont8x16`/`kBluetooth16x20`）与 `inline glyphIndex()`；新增字符需更新字模表。
 - `app::OledPanel` 负责底层 I2C（地址 `0x78`、超时 100 ms、逐字节页写、整屏刷新）；改动需评估对主循环节奏的影响。
 - 底层驱动与界面已解耦：新增控件在 `Display` 中实现，避免改动 `OledPanel`。
 
@@ -314,12 +317,12 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 - 调整计时/采样时注意 `kOnceDetectionTime`、`TimeUnit`、`Measurement::detectionTime` 的关系与单位换算。
 
 ### 4.6 修改 Flash 持久化数据（谨慎）
-- 结构 `app::ConversionValue` 与 `app::PersistentStore` 位于 `app/Persistence.hpp/.cpp`；改字段会改变持久化格式。
+- 结构 `app::ConversionValue` 与 `app::PersistentStore` 位于 `app/Persistence.hpp`（常量在 `namespace app::detail`）；改字段会改变持久化格式。
 - **改动前必须设计版本/迁移方案**：无 magic 或版本不符时应回退默认值，且避免旧数据被误解析。
 - 布局与枚举值有 `static_assert` 守卫；配置页已在链接脚本预留（R4 已修复）。写入语义见 `PersistentStore::save`。
 
 ### 4.7 资源约束
-- 当前占用（R8 基线，Debug `-O0`）：FLASH **28840 B / 63 KB ≈ 44.7%**，RAM **3808 B / 20 KB ≈ 18.6%**（`text 28828 / data 12 / bss 3792`）。
+- 当前占用（Debug `-O0`）：FLASH **40400 B / 63 KB ≈ 62.6%**，RAM **5376 B / 20 KB ≈ 26.3%**（`text 40388 / data 12 / bss 5360`）。
 - 配置页 `0x0800FC00` 已从 FLASH 区域剔除（63K）；固件增长至 63K 上限前需扩容或迁移数据。
 - 资源紧张时优先减小 `printf`/浮点重依赖；**不要引入 STL / `std::array`**（会带入 libstdc++/printf/malloc，见 [4.9](#49-c-使用规范)）。
 
@@ -345,7 +348,7 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 
 **C ABI 接缝**：会被 C 代码包含的头文件加 `extern "C"` 守卫；`main.c`/`stm32f1xx_it.c` 仅调用 `App_Init`、`App_UpdateDisplay`、`App_Poll`、`HAL_ADC_ConvCpltCallback`、`UartReceiver_HandleIdle`（以及历史保留但未使用的 `battery_level`，其声明在 `App.h` 之外由 C 侧不引用；保留以冻结 ABI）。注意 `--gc-sections` 会裁掉无引用的导出符号。结构体布局用 `static_assert`（`sizeof`/`offsetof`/标准布局）冻结。
 
-**初始化顺序**：`.init_array` 在 `HAL_Init()` **之前**运行；**禁止会触及 HAL/外设的全局构造函数**。单例（`app::g_app`、`app::g_uartReceiver`）为静态度量、不作动态初始化（避免 `= 0` 之类的默认成员初始化器引入动态构造）。
+**初始化顺序**：`.init_array` 在 `HAL_Init()` **之前**运行；**禁止会触及 HAL/外设的全局构造函数**。单例（`app::g_app`、`app::g_uartReceiver`、`app::g_bluetooth`）为静态度量、不作动态初始化（避免 `= 0` 之类的默认成员初始化器引入动态构造）。
 
 **验证方法**：以“干净重建 + 零新增警告 + 逐语句人工审查 + `static_assert` 布局守卫 + 尺寸/中断顺序核对”为准；`bin`/`hex` 逐字节 sha256 不再作为验收标准。所有阶段**未做硬件验证**。
 
@@ -360,7 +363,7 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 - **R3 ✅ 已解决**：原 `Write_Conversion_Value` 内 `Read_Conversion_Value(NULL)` 空指针风险，S2 改为 `PersistentStore::hasValidMagic()`，擦除条件语义不变。
 - **R4 ✅ 已解决**：配置页 `0x0800FC00` 已在链接脚本保留（FLASH 63K），并由 `patch_cubemx` 幂等维护。
 - **R5 ✅ 已解决**：ADC DMA 完成中断原先承载大量浮点运算与状态机；现已改为“中断仅拷贝 20 个样本快照并置挂起”（`App::onAdcComplete`），滤波/状态机/测量移至主循环 `App::poll() -> processAdc()`（提交 `ea380d8`）。处理节拍保持“每次 DMA 完成一次”。
-- **R6 🟡 死代码 / 未使用符号**：大部分死代码已归档到 `docs/DEAD_CODE.md`（`custom_exp10`、`Get_...Detection_Time`、`Phys_DrawHorizontalString` 等）；**UART 收帧输出仍无消费者**（`UartReceiver` 收到帧但无使用方）→ 记录。
+- **R6 ✅ 已解决**：UART 收帧输出原先无消费者；现已由 `app::UartReceiver::takeFrame()` 提供给 `app::BluetoothLink` 消费（JDY-31 蓝牙链路，提交 `92dce7e`）。其余死代码仍归档于 `docs/DEAD_CODE.md`。
 - **R7 ✅ 已处理**：未使用的 `FIFO_LOCKFREE` 模块已在 S7 删除（原无内存屏障问题随之消失）。
 - **R8 ✅ 已解决**：`app::UartReceiver::handleIdleInterrupt()` 原先在中断内执行 `HAL_UART_DMAStop` + `memcpy` + 重启 DMA；现改为仅清 IDLE 标志 + 置挂起位，帧长度计算与拷贝移至主循环 `UartReceiver::poll()`（利用 RX DMA 循环模式与写位置增量），不再在 ISR 内阻塞（提交 `322d916`）。
 - **R9 🟡 TIM2 更新中断“悬空”**：`HAL_TIM_Base_Start_IT(&htim2)` 置位更新中断使能，但无 `TIM2_IRQHandler` 且未使能 `TIM2_IRQn`；若启用 NVIC 将落入 `Default_Handler` 死循环。→ 记录。
@@ -373,7 +376,7 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 
 ## 附录 A. 基线与静态分析
 
-- 当前基线（Debug `-O0`，63 KB 区域）：FLASH **28840 B（44.7%）**、RAM **3808 B（18.6%）**（`text 28828 / data 12 / bss 3792`）；编译**零告警**。
+- 当前基线（Debug `-O0`，63 KB 区域）：FLASH **40400 B（62.6%）**、RAM **5376 B（26.3%）**（`text 40388 / data 12 / bss 5360`）；编译**零告警**。
 - 历史基线（阶段 1，C 时代，64 KB）：FLASH 27744 B（42.33%）、RAM 3784 B（18.48%）；`bin` sha256 `dbd2a8f1…8cf6`、`hex` sha256 `d3a782a9…d710`。逐字节 sha256 仅用于阶段 0–5 的等价验证，重写/修复后不再作为验收标准（见 [4.9](#49-c-使用规范)）。
 - 静态分析（clang-tidy 历史结果）：`FixedAddressDereference`（对应 R3/R4，均已修）、`DeadStores`（原 `OLED.c` 的 `ny`，已随重写消除）；其余风格类告警已随重写大部分消除。
 
@@ -396,11 +399,10 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 
 | 编号 | 事项 | 影响 |
 |---|---|---|
-| R6 | UART 收帧输出无消费者 | 功能未完成；清理需评估 |
 | R9 | TIM2 更新中断“悬空” | 启用 NVIC 会死循环 |
 | R10 | 状态机注释编号缺口 + 低电量检测被注释 | 可读性/功能完整性 |
 
-> R2、R3、R4、R5、R8 已修复（提交 `01b9986`/S2/`34c0c2c`/`ea380d8`/`322d916`）；其余均**只记录、未修改**。修复任何一项都可能改变行为，须由开发者决策并单独验证。
+> R2、R3、R4、R5、R6、R8 已修复（提交 `01b9986`/S2/`34c0c2c`/`ea380d8`/`92dce7e`/`322d916`）；其余均**只记录、未修改**。修复任何一项都可能改变行为，须由开发者决策并单独验证。
 
 ---
 

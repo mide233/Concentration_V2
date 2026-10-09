@@ -5,7 +5,7 @@
 
 > 说明：仅整理“从未被引用/从未被执行”的代码与成块注释。
 > **行为性缺陷**（如 R2 `c_Unit` 未初始化）按决策**不修**，仍保留在源码中（不做迁移）。
-> 仍在运行但输出无消费者的代码（如 UART 收帧路径，R8）**保留在源码**，不在此列。
+> 仍在运行但输出无消费者的代码**保留在源码**，不在此列（UART 收帧路径现已由蓝牙模块消费，见 R6）。
 
 ---
 
@@ -171,5 +171,5 @@ void fifo_lockfree_reset / is_empty / is_full / put / get / available(...);
 ## 6. 保留但已记录（未移除）
 
 - **`battery_level(float)`（`App.cpp`）**：作为外部 C 符号保留，但当前无调用点（`battery` 显示始终为 0）。保留以维持导出符号集合。
-- **UART 收帧路径**：有实际 DMA 副作用（R8），已迁至 `Core/Src/app/UartReceiver.cpp`，保留。
+- **UART 收帧路径**：有实际 DMA 副作用（R8），位于 `Core/Inc/app/UartReceiver.hpp`（header-only），并由 `app::BluetoothLink` 经 `takeFrame()` 消费（R6 已消除）；另见 RX DMA 溢出自恢复（提交 `615545a`）。
 - **`Measurement::unit_` / `c_Unit`（R2）**：按“仅修 R3/R4”的决策保留原行为。
