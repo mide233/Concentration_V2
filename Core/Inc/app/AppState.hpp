@@ -11,8 +11,6 @@ namespace app {
 
 /* 工作状态机状态（数值沿用历史约定，顺序不可变）。 */
 enum class WorkState : uint8_t {
-    Init = 0,
-    Save = 1,
     Calibration = 2,
     Working = 3,
     Ready = 4,

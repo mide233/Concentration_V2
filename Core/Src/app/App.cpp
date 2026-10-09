@@ -122,11 +122,6 @@ private:
             }
         } else if (data_.workStatus == WorkState::Working) {
             data_.measurement.update(data_.adcInt, kDetectionDeltaTime);
-        } else if (data_.workStatus == WorkState::Save) {
-            PersistentStore::save(data_.measurement.value(), data_.measurement.flag());
-            data_.workStatus = WorkState::Ready;
-        } else if (data_.workStatus == WorkState::Init) {
-            // 无操作
         }
 
         if (data_.workStatus == WorkState::Calibration || data_.workStatus == WorkState::Working) {
@@ -137,7 +132,6 @@ private:
     }
 
     void updateWorkStatus() {
-        /* ==================== 1. 意图状态转换 ==================== */
         switch (data_.workStatus) {
         case WorkState::Ready:
             if (data_.hopeStatus == WorkState::Working
@@ -153,47 +147,15 @@ private:
                 setUvLevel(data_.measurement.value().uvLightLevel);
                 dcCtrlOn();
                 data_.workStatus = WorkState::Calibration;
-            } else if (data_.hopeStatus == WorkState::Save) {
-                data_.workStatus = WorkState::Save;
             }
             break;
 
         case WorkState::Working:
         case WorkState::Calibration:
-        case WorkState::Init:
-            if (data_.hopeStatus == WorkState::Ready
-                && data_.measurement.flag() == ConversionFlag::Finished) {
-                data_.result = data_.measurement.result();
-                data_.workStatus = WorkState::Ready;
-            } else if (
-                data_.hopeStatus != WorkState::Ready
-                && data_.measurement.flag() == ConversionFlag::Finished) {
-                setUvLevel(kUvCloseLevel);
-                dcCtrlOff();
-            } else if (
-                data_.hopeStatus == WorkState::Ready
-                && data_.measurement.flag() == ConversionFlag::InProgress) {
-                setUvLevel(kUvCloseLevel);
-                dcCtrlOff();
-                data_.workStatus = WorkState::Ready;
-            } else if (
-                data_.hopeStatus == WorkState::Ready
-                && data_.measurement.flag() == ConversionFlag::Ready) {
-                setUvLevel(kUvCloseLevel);
-                dcCtrlOff();
-                data_.workStatus = WorkState::Ready;
-            }
-            if (data_.input.tilt.status() == 0)
-                data_.workStatus = WorkState::ErrTilt;
-            else if (data_.input.sw.status() == 0)
-                data_.workStatus = WorkState::ErrOpen;
-            else if (data_.input.key.status() == 0)
-                data_.workStatus = WorkState::ErrNoContainer;
-            break;
-
         case WorkState::ErrTilt:
         case WorkState::ErrOpen:
         case WorkState::ErrLowPower:
+
         case WorkState::ErrNoContainer:
             if (data_.hopeStatus == WorkState::Ready) {
                 data_.workStatus = WorkState::Ready;
@@ -203,25 +165,34 @@ private:
         default: break;
         }
 
-        /* ==================== 3. 低电量检测（历史代码已注释，见 docs/DEAD_CODE.md）
-         * ==================== */
+        bool is_err_tilt = data_.input.tilt.status() == 0;
+        bool is_err_open = data_.input.sw.status() == 0;
+        bool is_err_nocontainer = data_.input.key.status() == 0;
+        bool is_err_lowpower =
+            !(data_.battery.level() > 2 || data_.battery.status() == BattStatus::Standby);
 
-        /* ==================== 4. 错误恢复 ==================== */
-        if (data_.workStatus == WorkState::ErrLowPower
-            && (data_.battery.level() > 2 || data_.battery.status() == BattStatus::Standby)) {
+        if (data_.workStatus == WorkState::ErrLowPower && !is_err_lowpower) {
             data_.workStatus = WorkState::Ready;
         }
-        if (data_.workStatus == WorkState::ErrOpen && data_.input.sw.status() != 0) {
+        if (data_.workStatus == WorkState::ErrOpen && !is_err_open) {
             data_.workStatus = WorkState::Ready;
         }
-        if (data_.workStatus == WorkState::ErrTilt && data_.input.tilt.status() != 0) {
+        if (data_.workStatus == WorkState::ErrTilt && !is_err_tilt) {
             data_.workStatus = WorkState::Ready;
         }
-        if (data_.workStatus == WorkState::ErrNoContainer && data_.input.key.status() != 0) {
+        if (data_.workStatus == WorkState::ErrNoContainer && !is_err_nocontainer) {
             data_.workStatus = WorkState::Ready;
         }
 
-        /* ==================== 5. 电池状态更新 ==================== */
+        if (is_err_lowpower)
+            data_.workStatus = WorkState::ErrLowPower;
+        else if (is_err_tilt)
+            data_.workStatus = WorkState::ErrTilt;
+        else if (is_err_open)
+            data_.workStatus = WorkState::ErrOpen;
+        else if (is_err_nocontainer)
+            data_.workStatus = WorkState::ErrNoContainer;
+
         data_.battery.updateStatus();
     }
 

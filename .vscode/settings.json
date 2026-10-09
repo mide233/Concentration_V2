@@ -29,6 +29,7 @@
         "IDLEFLAG",
         "ihex",
         "libob",
+        "lowpower",
         "OBJCOPY",
         "OLED",
         "RTTI",

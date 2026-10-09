@@ -3,9 +3,20 @@
 
 #include <cstdint>
 
-#include "app/Persistence.hpp"
-
 namespace app {
+
+/* 转换/校准结果；字段顺序与 Flash 持久化布局绑定，勿改。 */
+struct ConversionValue {
+    float rawValue;
+    uint16_t uvLightLevel;
+};
+
+/* 一次检测的状态标志（数值沿用历史约定）。 */
+enum class ConversionFlag : uint8_t {
+    Ready = 1,
+    Finished = 2,
+    InProgress = 3,
+};
 
 /* 时间单位（枚举值沿用历史约定：ms=1, s=2, us=3）。 */
 enum class TimeUnit : uint8_t {
@@ -34,13 +45,10 @@ public:
         if (timeUnit == TimeUnit::Microseconds) {
             timeUnit_ = 0.000001f;
         }
-
-        flag_ =
-            PersistentStore::load(value_) ? ConversionFlag::Ready : ConversionFlag::NotInitialized;
     }
 
     void update(float current, float deltaTime) {
-        if (flag_ == ConversionFlag::Ready || flag_ == ConversionFlag::NotInitialized) {
+        if (flag_ == ConversionFlag::Ready) {
             flag_ = ConversionFlag::InProgress;
             currentStart_ = current;
         } else if (flag_ == ConversionFlag::InProgress) {
@@ -73,9 +81,7 @@ public:
     }
 
     void reset() {
-        if (flag_ != ConversionFlag::NotInitialized) {
-            flag_ = ConversionFlag::Ready;
-        }
+        flag_ = ConversionFlag::Ready;
         currentTotal_ = 0.0f;
         detectionTime_ = 0.0f;
     }
@@ -91,7 +97,7 @@ private:
     float currentTotal_ = 0.0f;
     float currentStart_ = 0.0f;
     ConversionValue value_{};
-    ConversionFlag flag_ = ConversionFlag::NotInitialized;
+    ConversionFlag flag_ = ConversionFlag::Ready;
 };
 
 } // namespace app
