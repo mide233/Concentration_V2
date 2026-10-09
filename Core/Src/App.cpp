@@ -14,10 +14,10 @@
 #include "adc.h"
 #include "tim.h"
 #include "usart.h"
-#include "OLED.h"
 
 #include "app/AppConfig.hpp"
 #include "app/AppState.hpp"
+#include "app/Display.hpp"
 #include "app/Hardware.hpp"
 
 extern "C" {
@@ -45,6 +45,7 @@ private:
     void updateWorkStatus();
 
     AppData data_;
+    Display display_;
 };
 
 } // namespace
@@ -73,12 +74,16 @@ void App::init()
     data_.input.sw.begin(1);
     data_.input.tilt.begin(1);
     data_.input.key.begin(1);
+
+    // 初始化显示（原 main.c 的 OLED_Init/OLED_Set_Dot 迁移至此，保持调用顺序）。
+    display_.init();
+    display_.setDot(true);
 }
 
 void App::updateDisplay()
 {
     /* bluetooth_state 固定为 1（与历史行为一致）。 */
-    OLED_Update(static_cast<uint8_t>(data_.battery.level()), 1, data_.progress);
+    display_.update(static_cast<uint8_t>(data_.battery.level()), 1, data_.progress);
 }
 
 void App::averageFiltering(uint16_t *input, uint16_t numChannels, uint16_t totalSamples, uint16_t *out)

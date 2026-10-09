@@ -48,8 +48,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/app/Persistence.cpp
     Core/Src/app/Measurement.cpp
     Core/Src/app/BatteryMonitor.cpp
+    Core/Src/app/Display.cpp
+    Core/Src/app/OledPanel.cpp
     Core/Src/FIFO_LOCKFREE.cpp
-    Core/Src/OLED.cpp
     Core/Src/App.cpp
 )
 

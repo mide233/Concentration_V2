@@ -27,7 +27,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "OLED.h"
 #include "App.h"
 /* USER CODE END Includes */
 
@@ -104,9 +103,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-    App_Init();       // 启动 ADC/DMA/TIM/UART 并初始化测量状态机
-    OLED_Init();
-    OLED_Set_Dot(1);  // 显示右侧圆点
+    App_Init(); // 启动外设、测量状态机与显示
   /* USER CODE END 2 */
 
   /* Infinite loop */

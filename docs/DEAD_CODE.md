@@ -123,7 +123,38 @@ fifo_lockfree_t msg_fifo = FIFO_LOCKFREE_INIT(msg_fifo, msg_buf, MSG_SIZE);
 
 ---
 
-## 4. 保留但已记录（未移除）
+## 4. `Core/Src/OLED.cpp` / `Core/Inc/OLED.h`（S5 删除，改为 `app/OledPanel.cpp` + `app/Display.cpp`）
+
+### 4.1 `Phys_DrawCharNormal()` —— 仅被 `TEXT_MODE==1` 的水平文字路径使用
+原位置：`OLED.cpp` 内字符绘制函数区。
+```c
+/* 正立字符绘制，仅 TEXT_MODE==1 使用；当前 TEXT_MODE==0（侧躺），从未被调用 */
+```
+移除原因：`TEXT_MODE` 固定为 0，水平文字路径整体不可达（R6）。
+
+### 4.2 `Phys_DrawHorizontalString()` —— 从未被调用
+原位置：`OLED.cpp` 文件内函数定义（`Phys_DrawCharNormal` 之后）。
+```c
+/* 水平排布字符串，仅 TEXT_MODE==1 使用 */
+```
+移除原因：仅服务于未启用的 `TEXT_MODE==1` 路径；编译器曾报 `defined but not used`（R6）。
+
+### 4.3 `TEXT_MODE==1` 水平分支与相关宏
+原位置：`OLED.cpp::update()` 内的 `if (TEXT_MODE == 1) ... else ...` 分支，以及 `OLED.h` 中的
+`TEXT_MODE` / `TEXT_MIRROR_H` / `TEXT_MIRROR_V` / `TEXT_REVERSE_ORDER` 调试宏。
+移除原因：固定走侧躺竖直路径后，水平分支不可达；参数已固化为 `Display.cpp` 中的常量。
+
+### 4.4 注释掉的旧蓝牙位图
+原位置：`OLED.cpp` 蓝牙图标区的成块注释。
+```c
+/* 以下为旧版 bluetooth 位图，疑似废弃，待人工确认 */
+// const uint8_t bluetooth_old[16][20] = { ... };
+```
+移除原因：历史遗留、未启用。
+
+---
+
+## 5. 保留但已记录（未移除）
 
 - **`battery_level(float)`（`App.cpp`）**：作为外部 C 符号保留，但当前无调用点（`battery` 显示始终为 0）。保留以维持导出符号集合。
 - **FIFO_LOCKFREE 整模块**：S4 已移除 `main.c` 中的 `msg_fifo` / `msg_buf` 用法与 include；模块文件按计划在 S7 统一删除。
