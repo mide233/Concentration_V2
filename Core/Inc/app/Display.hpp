@@ -29,31 +29,30 @@ public:
     // 初始化面板并清空逻辑缓冲
     void init() {
         std::memset(logicBuffer_, 0, sizeof(logicBuffer_));
-        dotExist_ = 0;
         panel_.init();
     }
 
-    // 设置中部圆点指示
-    void setDot(bool on) { dotExist_ = on ? 1 : 0; }
-
     // 绘制并刷新一帧
-    void update(uint8_t batteryLevel, uint8_t bluetoothState, uint8_t percent) {
+    void update(
+        uint8_t batteryLevel, uint8_t bluetoothState, uint8_t percent, const char* msg = nullptr,
+        bool is_err = false) {
         std::memset(logicBuffer_, 0, sizeof(logicBuffer_));
 
         uint8_t topCenterY = static_cast<uint8_t>(kTopStartY + kTopAreaHeight / 2);
         drawBattery(4, static_cast<uint8_t>(topCenterY - 6), batteryLevel);
 
         uint8_t midCenterY = static_cast<uint8_t>(kMidStartY + kMidAreaHeight / 2);
-        drawBluetooth(5, static_cast<uint8_t>(midCenterY - 9), bluetoothState);
-        drawDot(static_cast<uint8_t>(kLogicWidth - 11), midCenterY - 1, false);
+        drawBluetooth(5, static_cast<uint8_t>(midCenterY - 9));
+        drawDot(static_cast<uint8_t>(kLogicWidth - 11), midCenterY - 1, bluetoothState);
 
         drawProgressBar(percent, kBottomStartY, kBottomAreaHeight);
 
         rotateToPanel();
-        drawText(percent);
+        drawText(percent, is_err);
 
-        // Todo: make a toast message area for messages
-        // drawString(38, 9, "ERRMSG", true);
+        if (msg) {
+            drawString(38, 9, msg, true);
+        }
 
         panel_.refresh();
     }
@@ -112,10 +111,7 @@ private:
         }
     }
 
-    // 按 show 决定是否绘制蓝牙图标
-    void drawBluetooth(uint8_t x, uint8_t y, uint8_t show) {
-        if (!show)
-            return;
+    void drawBluetooth(uint8_t x, uint8_t y) {
         for (uint8_t i = 0; i < 20; i++)
             for (uint8_t j = 0; j < 16; j++)
                 if (kBluetooth16x20[i][j])
@@ -249,7 +245,7 @@ private:
     }
 
     // 组装并绘制百分比文字（>=100 显示 OK!）
-    void drawText(uint8_t percent) {
+    void drawText(uint8_t percent, bool is_err) {
         char text[5] = {0};
         if (percent >= 100) {
             std::strcpy(text, "OK!");
@@ -261,12 +257,14 @@ private:
             text[1] = static_cast<char>('0' + (percent % 10));
             text[2] = '%';
         }
+        if (is_err) {
+            std::strcpy(text, "ERR");
+        }
         drawVerticalRotatedString(kTextPosX, kTextPosY, text);
     }
 
     OledPanel panel_;
     uint8_t logicBuffer_[kLogicBufferSize]; // 32x128 逻辑图形缓冲（按页存放）
-    uint8_t dotExist_;
 };
 
 } // namespace app

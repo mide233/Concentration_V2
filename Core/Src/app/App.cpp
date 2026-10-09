@@ -49,12 +49,12 @@ public:
 
         // 初始化显示（原 main.c 的 OLED_Init/OLED_Set_Dot 迁移至此，保持调用顺序）。
         display_.init();
-        display_.setDot(true);
     }
 
     void updateDisplay() {
-        /* bluetooth_state 固定为 1（与历史行为一致）。 */
-        display_.update(static_cast<uint8_t>(data_.battery.level()), 1, data_.progress);
+        // TODO: connect bluetooth state to real
+        display_.update(
+            static_cast<uint8_t>(data_.battery.level()), 0, data_.progress, data_.msg, isError());
     }
 
     // ADC DMA 完成中断：仅拷贝样本快照并置位
@@ -114,6 +114,13 @@ private:
         }
     }
 
+    bool isError() {
+        return (
+            data_.workStatus == WorkState::ErrLowPower || data_.workStatus == WorkState::ErrTilt
+            || data_.workStatus == WorkState::ErrOpen
+            || data_.workStatus == WorkState::ErrNoContainer);
+    }
+
     void runMeasurementTask() {
         if (data_.workStatus == WorkState::Calibration) {
             data_.measurement.calibrate(data_.adcInt, kDetectionDeltaTime);
@@ -126,8 +133,17 @@ private:
 
         if (data_.workStatus == WorkState::Calibration || data_.workStatus == WorkState::Working) {
             data_.progress = static_cast<uint8_t>(data_.measurement.detectionTime());
-        } else if (data_.battery.status() != BattStatus::Normal) {
+            if (data_.workStatus == WorkState::Calibration)
+                data_.msg = const_cast<char*>("WORK");
+            else
+                data_.msg = const_cast<char*>("CALI");
+        } else if (!isError()) {
             data_.progress = static_cast<uint8_t>(data_.battery.adc() / kBatteryVMax * 100);
+
+            if (data_.battery.status() == BattStatus::Charging)
+                data_.msg = const_cast<char*>("CHARGE");
+            else
+                data_.msg = const_cast<char*>("BATTERY");
         }
     }
 
@@ -184,14 +200,19 @@ private:
             data_.workStatus = WorkState::Ready;
         }
 
-        if (is_err_lowpower)
+        if (is_err_lowpower && false) {          // Debug: 屏蔽低电量错误，便于调试
             data_.workStatus = WorkState::ErrLowPower;
-        else if (is_err_tilt)
+            data_.msg = const_cast<char*>("LOW POW");
+        } else if (is_err_tilt) {
             data_.workStatus = WorkState::ErrTilt;
-        else if (is_err_open)
+            data_.msg = const_cast<char*>("TILTING");
+        } else if (is_err_open) {
             data_.workStatus = WorkState::ErrOpen;
-        else if (is_err_nocontainer)
+            data_.msg = const_cast<char*>("OPEN LID");
+        } else if (is_err_nocontainer) {
             data_.workStatus = WorkState::ErrNoContainer;
+            data_.msg = const_cast<char*>("NO CONT");
+        }
 
         data_.battery.updateStatus();
     }

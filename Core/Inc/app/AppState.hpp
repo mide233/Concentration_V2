@@ -40,6 +40,7 @@ struct AppData {
     Inputs input;
     Measurement measurement;
     uint64_t time;
+    char* msg;
 };
 
 } // namespace app
