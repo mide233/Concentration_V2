@@ -252,7 +252,6 @@ private:
             if (lineLen_ < kLineMax - 1u) {
                 lineBuf_[lineLen_++] = static_cast<char>(c);
                 lineBuf_[lineLen_] = '\0';
-                applyStatus(lineBuf_); // 状态文本可能不带换行，边收边识别
             } else {
                 lineLen_ = 0; // 溢出：丢弃该行
             }
