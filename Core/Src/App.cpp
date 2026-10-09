@@ -77,6 +77,7 @@ void App::init()
 
 void App::updateDisplay()
 {
+    /* bluetooth_state 固定为 1（与历史行为一致）。 */
     OLED_Update(static_cast<uint8_t>(data_.battery.level()), 1, data_.progress);
 }
 

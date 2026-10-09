@@ -28,8 +28,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "OLED.h"
-
-#include "FIFO_LOCKFREE.h"
 #include "App.h"
 /* USER CODE END Includes */
 
@@ -62,18 +60,12 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t I = 0;
-// my_data / hardware_status 已迁移至 App.cpp 中的 App 单例 (g_app)
-// uint32_t ndtr;
-#define MSG_SIZE 32
-static fifo_data_t msg_buf[MSG_SIZE];
-fifo_lockfree_t msg_fifo = FIFO_LOCKFREE_INIT(msg_fifo, msg_buf, MSG_SIZE);
-
-uint8_t rx_dma_buffer[RX_BUFFER_SIZE]; // DMA搬运数据的缓冲区[reference:21]
+/* UART 空闲中断收帧缓冲：stm32f1xx_it.c 通过 extern 引用。
+ * 说明：收帧结果当前无消费者（R8），按决策保留其运行行为。 */
+uint8_t rx_dma_buffer[RX_BUFFER_SIZE]; // DMA 搬运数据的缓冲区
 volatile uint8_t rx_frame_ready = 0;   // 帧接收完成标志
-uint8_t rx_work_buffer[RX_BUFFER_SIZE];// 用于处理的工作缓冲区
+uint8_t rx_work_buffer[RX_BUFFER_SIZE];// 帧处理工作缓冲区
 uint16_t rx_frame_len = 0;             // 当前帧长度
-//  extern I2C_HandleTypeDef hi2c1;  // 已初始化的 I2C 句柄
 
 /* USER CODE END 0 */
 
@@ -112,15 +104,9 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-    App_Init();
+    App_Init();       // 启动 ADC/DMA/TIM/UART 并初始化测量状态机
     OLED_Init();
-    OLED_Set_Dot(1); // 显示右侧圆点
-
-    // HAL_ADC_Start_DMA(&hadc1, (uint32_t *)my_data.ADC_value[0], 20);
-    // // HAL_DMA_Start_IT(&hdma_adc1, (uint32_t)&hadc1.Instance->DR, (uint32_t)my_data.ADC_value[0], 20);
-    // HAL_TIM_Base_Start_IT(&htim2);
-    // HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
-
+    OLED_Set_Dot(1);  // 显示右侧圆点
   /* USER CODE END 2 */
 
   /* Infinite loop */

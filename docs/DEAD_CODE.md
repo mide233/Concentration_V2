@@ -112,11 +112,20 @@ uint8_t I = 0;                       // 全仓无引用
 ```
 移除原因：已迁移至 `App::init()`，注释块为遗留。
 
+### 3.3 FIFO 用法（`main.c` 侧，S4 移除）
+```c
+#define MSG_SIZE 32
+static fifo_data_t msg_buf[MSG_SIZE];
+fifo_lockfree_t msg_fifo = FIFO_LOCKFREE_INIT(msg_fifo, msg_buf, MSG_SIZE);
+#include "FIFO_LOCKFREE.h"   // 仅为上述对象而包含
+```
+移除原因：`msg_fifo` / `msg_buf` 全仓无读写点，`FIFO_LOCKFREE` 整模块未被引用（R6）。S4 从 `main.c` 移除其用法与 include；模块文件本身按计划在 S7 统一删除。
+
 ---
 
 ## 4. 保留但已记录（未移除）
 
 - **`battery_level(float)`（`App.cpp`）**：作为外部 C 符号保留，但当前无调用点（`battery` 显示始终为 0）。保留以维持导出符号集合。
-- **FIFO_LOCKFREE 整模块**、`msg_buf`/`msg_fifo`：计划在后续阶段（S7）统一处理，暂留。
+- **FIFO_LOCKFREE 整模块**：S4 已移除 `main.c` 中的 `msg_fifo` / `msg_buf` 用法与 include；模块文件按计划在 S7 统一删除。
 - **UART 收帧路径**：有实际 DMA 副作用（R8），保留。
 - **`Concentration_Conversion_t::Unit` / `c_Unit`（R2）**：按“仅修 R3/R4”的决策保留原行为。
