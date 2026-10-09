@@ -4,7 +4,7 @@
  * @brief   应用层逻辑（C++）：状态机、ADC 完成回调、电量与进度计算。
  *
  * 由 main.c 与 HAL 回调驱动；对外仅暴露 App.h 中的 C 接口以及 HAL 的
- * HAL_ADC_ConvCpltCallback。无堆分配、无异常/RTTI、无全局动态构造。
+ * HAL_ADC_ConvCpltCallback。无堆分配、无异常/RTTI。
  ******************************************************************************
  */
 
@@ -49,7 +49,7 @@ private:
 
 } // namespace
 
-// 文件内唯一实例：常量静态初始化（无动态构造、无 .init_array 项）。
+// 文件内唯一实例。
 App g_app;
 
 void App::init()
@@ -70,14 +70,14 @@ void App::init()
     data_.measurement.init(TimeUnit::Milliseconds, kOnceDetectionTime);
 
     // 初始输入状态取反（0 表示错误态，与历史 SW/TILT/KEY_STATUS 一致）。
-    data_.input.swStatus = 1;
-    data_.input.tiltStatus = 1;
-    data_.input.keyStatus = 1;
+    data_.input.sw.begin(1);
+    data_.input.tilt.begin(1);
+    data_.input.key.begin(1);
 }
 
 void App::updateDisplay()
 {
-    OLED_Update(data_.battery.level, 1, data_.progress);
+    OLED_Update(static_cast<uint8_t>(data_.battery.level()), 1, data_.progress);
 }
 
 void App::averageFiltering(uint16_t *input, uint16_t numChannels, uint16_t totalSamples, uint16_t *out)
@@ -111,8 +111,8 @@ void App::runMeasurementTask()
 
     if (data_.workStatus == WorkState::Calibration || data_.workStatus == WorkState::Working) {
         data_.progress = static_cast<uint8_t>(data_.measurement.detectionTime());
-    } else if (data_.battery.status != BattStatus::Normal) {
-        data_.progress = static_cast<uint8_t>(data_.battery.adc / kBatteryVMax * 100);
+    } else if (data_.battery.status() != BattStatus::Normal) {
+        data_.progress = static_cast<uint8_t>(data_.battery.adc() / kBatteryVMax * 100);
     }
 }
 
@@ -154,11 +154,11 @@ void App::updateWorkStatus()
                 dcCtrlOff();
                 data_.workStatus = WorkState::Ready;
             }
-            if (data_.input.tiltStatus == 0)
+            if (data_.input.tilt.status() == 0)
                 data_.workStatus = WorkState::ErrTilt;
-            else if (data_.input.swStatus == 0)
+            else if (data_.input.sw.status() == 0)
                 data_.workStatus = WorkState::ErrOpen;
-            else if (data_.input.keyStatus == 0)
+            else if (data_.input.key.status() == 0)
                 data_.workStatus = WorkState::ErrNoContainer;
             break;
 
@@ -179,27 +179,21 @@ void App::updateWorkStatus()
 
     /* ==================== 4. 错误恢复 ==================== */
     if (data_.workStatus == WorkState::ErrLowPower &&
-        (data_.battery.level > 2 || data_.battery.status == BattStatus::Standby)) {
+        (data_.battery.level() > 2 || data_.battery.status() == BattStatus::Standby)) {
         data_.workStatus = WorkState::Ready;
     }
-    if (data_.workStatus == WorkState::ErrOpen && data_.input.swStatus != 0) {
+    if (data_.workStatus == WorkState::ErrOpen && data_.input.sw.status() != 0) {
         data_.workStatus = WorkState::Ready;
     }
-    if (data_.workStatus == WorkState::ErrTilt && data_.input.tiltStatus != 0) {
+    if (data_.workStatus == WorkState::ErrTilt && data_.input.tilt.status() != 0) {
         data_.workStatus = WorkState::Ready;
     }
-    if (data_.workStatus == WorkState::ErrNoContainer && data_.input.keyStatus != 0) {
+    if (data_.workStatus == WorkState::ErrNoContainer && data_.input.key.status() != 0) {
         data_.workStatus = WorkState::Ready;
     }
 
     /* ==================== 5. 电池状态更新 ==================== */
-    if (HAL_GPIO_ReadPin(SHDBY_GPIO_Port, SHDBY_Pin) == GPIO_PIN_RESET) {
-        data_.battery.status = BattStatus::Standby;
-    } else if (HAL_GPIO_ReadPin(CHRG_GPIO_Port, CHRG_Pin) == GPIO_PIN_RESET) {
-        data_.battery.status = BattStatus::Charging;
-    } else {
-        data_.battery.status = BattStatus::Normal;
-    }
+    data_.battery.updateStatus();
 }
 
 void App::onAdcComplete()
@@ -207,31 +201,13 @@ void App::onAdcComplete()
     averageFiltering(data_.adcValue, kAdcChannelCount, kAdcSampleCount, data_.adcAvg);
     updateWorkStatus();
     data_.adcInt = data_.adcAvg[kAdcIntChannel];
-    data_.battery.adc = data_.adcAvg[kAdcBatChannel];
+    data_.battery.setAdc(data_.adcAvg[kAdcBatChannel]);
     runMeasurementTask();
 
     if (data_.workStatus == WorkState::Working || data_.workStatus == WorkState::Calibration) {
-        if (HAL_GPIO_ReadPin(SW_GPIO_Port, SW_Pin) != data_.input.swStatus) {
-            data_.input.swTimes++;
-        }
-        if (HAL_GPIO_ReadPin(TILT_GPIO_Port, TILT_Pin) != data_.input.tiltStatus) {
-            data_.input.tiltTimes++;
-        }
-        if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) != data_.input.keyStatus) {
-            data_.input.keyTimes++;
-        }
-        if (data_.input.swTimes > kDebounceThreshold) {
-            data_.input.swTimes = 0;
-            data_.input.swStatus = 1 - data_.input.swStatus;
-        }
-        if (data_.input.tiltTimes > kDebounceThreshold) {
-            data_.input.tiltTimes = 0;
-            data_.input.tiltStatus = 1 - data_.input.tiltStatus;
-        }
-        if (data_.input.keyTimes > kDebounceThreshold) {
-            data_.input.keyTimes = 0;
-            data_.input.keyStatus = 1 - data_.input.keyStatus;
-        }
+        data_.input.sw.update(static_cast<uint8_t>(HAL_GPIO_ReadPin(SW_GPIO_Port, SW_Pin)));
+        data_.input.tilt.update(static_cast<uint8_t>(HAL_GPIO_ReadPin(TILT_GPIO_Port, TILT_Pin)));
+        data_.input.key.update(static_cast<uint8_t>(HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin)));
     }
 }
 
@@ -240,23 +216,7 @@ void App::onAdcComplete()
 /* 电量等级换算：保留原外部 C 符号（当前无调用点，见 docs/DEAD_CODE.md）。 */
 extern "C" int battery_level(float voltage)
 {
-    if (voltage >= app::kBatteryVMax) {
-        return 5;
-    }
-    if (voltage <= app::kBatteryVMin) {
-        return 0;
-    }
-
-    const float ratio = (voltage - app::kBatteryVMin) / (app::kBatteryVMax - app::kBatteryVMin);
-    int level = static_cast<int>(ratio * 5 + 0.5f);
-
-    if (level < 0) {
-        level = 0;
-    }
-    if (level > 5) {
-        level = 5;
-    }
-    return level;
+    return app::BatteryMonitor::levelFor(voltage);
 }
 
 extern "C" void App_Init(void)

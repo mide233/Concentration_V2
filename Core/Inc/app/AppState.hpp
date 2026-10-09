@@ -3,16 +3,11 @@
 
 #include <cstdint>
 
+#include "app/BatteryMonitor.hpp"
+#include "app/InputDebounce.hpp"
 #include "app/Measurement.hpp"
 
 namespace app {
-
-/* 电池/充电状态（数值沿用历史约定：0=正常, 1=待机, 2=充电）。 */
-enum class BattStatus : uint8_t {
-    Normal = 0,
-    Standby = 1,
-    Charging = 2,
-};
 
 /* 工作状态机状态（数值沿用历史约定，顺序不可变）。 */
 enum class WorkState : uint8_t {
@@ -27,34 +22,24 @@ enum class WorkState : uint8_t {
     ErrNoContainer = 8,
 };
 
-/* 电池采样数据。 */
-struct BatteryData {
-    float adc;
-    int level;
-    BattStatus status;
-};
-
-/* 按键/开关消抖状态（原 hardware_status）。 */
-struct InputState {
-    uint8_t swStatus;
-    uint8_t swTimes;
-    uint8_t tiltStatus;
-    uint8_t tiltTimes;
-    uint8_t keyStatus;
-    uint8_t keyTimes;
+/* 三路按键/开关输入（原 hardware_status 的 SW/TILT/KEY）。 */
+struct Inputs {
+    InputDebounce sw;
+    InputDebounce tilt;
+    InputDebounce key;
 };
 
 /* 应用运行数据（原全局 my_data / hardware_status）。 */
 struct AppData {
     uint16_t adcValue[20];
     uint16_t adcAvg[2];
-    BatteryData battery;
+    BatteryMonitor battery;
     float adcInt;
     WorkState workStatus;
     WorkState hopeStatus;
     float result;
     uint8_t progress;
-    InputState input;
+    Inputs input;
     Measurement measurement;
     uint64_t time;
 };

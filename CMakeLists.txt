@@ -47,6 +47,7 @@ add_subdirectory(cmake/stm32cubemx)
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/app/Persistence.cpp
     Core/Src/app/Measurement.cpp
+    Core/Src/app/BatteryMonitor.cpp
     Core/Src/FIFO_LOCKFREE.cpp
     Core/Src/OLED.cpp
     Core/Src/App.cpp
