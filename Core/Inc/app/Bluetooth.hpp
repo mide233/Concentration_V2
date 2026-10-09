@@ -5,6 +5,7 @@
 
 #include <cstring>
 
+#include "app/Protocol.hpp"
 #include "app/UartReceiver.hpp"
 #include "main.h"
 #include "usart.h"
@@ -15,7 +16,9 @@ namespace app {
  *
  * 状态检测：软件方式。连接时模块在串口输出状态文本（AT+ENLOG=1 开启），
  *           本类以宽松子串匹配识别 CONNECT/DISCONNECT，无需额外 GPIO。
- * 收发协议：文本行协议，行尾以 '\n' 结束（容忍 "\r\n"）。
+ * 收发协议：应用数据使用二进制帧协议（见 Protocol.hpp）；同时保留文本行通道用于
+ *           AT 应答与连接状态文本解析。二进制帧以 SOF1=0xAA 起始，与可打印 ASCII
+ *           文本不冲突，二者可在同一字节流中共存。
  * AT 配置：上电等待模块就绪后，依次发送 AT+VERSION / AT+NAME<名> / AT+ENLOG1；
  *           若模块已处于连接态（热复位）则 AT 无应答，超时后落回被动 Idle，不阻塞启动。
  * 设备名：运行时由 STM32F103 芯片唯一 ID（96-bit UID，0x1FFFF7E8）低 16 位生成
@@ -25,6 +28,7 @@ inline constexpr uint16_t kLineMax = 96;               // 单行最大长度（�
 inline constexpr uint16_t kTxStagingSize = 96;         // 单条待发文本最大长度
 inline constexpr uint8_t kTxSlots = 4;                 // 待发队列槽数
 inline constexpr uint8_t kRxSlots = 4;                 // 已收行队列槽数
+inline constexpr uint8_t kFrameRxSlots = 4;            // 已收二进制帧队列槽数
 inline constexpr uint16_t kNameMax = 16;               // 设备名缓冲
 inline constexpr uint32_t kAtTimeoutMs = 500;          // AT 指令应答超时
 inline constexpr uint8_t kAtRetries = 3;               // AT 探测重试次数
@@ -46,6 +50,12 @@ public:
         rxHead_ = 0;
         rxTail_ = 0;
         lineLen_ = 0;
+
+        binState_ = BinState::Idle;
+        binIdx_ = 0;
+        binLen_ = 0;
+        rfHead_ = 0;
+        rfTail_ = 0;
 
         atRetries_ = 0;
         atReplied_ = false;
@@ -104,6 +114,28 @@ public:
         return len;
     }
 
+    // 发送一段原始字节（用于二进制协议帧）；仅在已连接且队列未满时成功。
+    bool sendBytes(const uint8_t* data, uint16_t len) {
+        if (!connected_ || data == nullptr || len == 0u || len > kTxStagingSize - 1u) {
+            return false;
+        }
+        return enqueue(reinterpret_cast<const char*>(data), len);
+    }
+
+    // 取出一帧已收二进制数据；返回字节数，无帧返回 0。
+    uint16_t readFrame(uint8_t* out, uint16_t cap) {
+        if (rfHead_ == rfTail_ || out == nullptr || cap == 0u) {
+            return 0;
+        }
+        uint16_t len = rxFramesLen_[rfHead_];
+        if (len > cap) {
+            len = cap;
+        }
+        std::memcpy(out, rxFrames_[rfHead_], len);
+        rfHead_ = static_cast<uint8_t>((rfHead_ + 1u) % kFrameRxSlots);
+        return len;
+    }
+
     // TX 完成中断回调（由 HAL_UART_TxCpltCallback 转发至此）。
     void onTxComplete() {
         if (!txBusy_) {
@@ -121,6 +153,15 @@ private:
         EnableLog,
         Idle,
         Connected,
+    };
+
+    // 二进制帧解析状态。
+    enum class BinState : uint8_t {
+        Idle = 0,
+        Sof2,
+        Len,
+        Body,
+        Chk,
     };
 
     [[nodiscard]] static uint32_t nowMs() { return HAL_GetTick(); }
@@ -234,10 +275,22 @@ private:
         return false;
     }
 
-    // 字节流 -> 行组装（以 '\n' 结束，忽略 '\r'）。
+    // 字节流分派：优先解析二进制帧（帧内字节不参与文本行组装），否则按文本行处理。
     void feed(const uint8_t* data, uint16_t len) {
         for (uint16_t i = 0; i < len; ++i) {
             const uint8_t c = data[i];
+
+            if (binState_ != BinState::Idle) {
+                feedBinary(c);
+                continue;
+            }
+            if (c == kFrameSof1) {
+                binState_ = BinState::Sof2;
+                binBuf_[0] = c;
+                binIdx_ = 1;
+                continue;
+            }
+
             if (c == '\r') {
                 continue;
             }
@@ -258,12 +311,76 @@ private:
         }
 
         // 帧结束（USART1 空闲间隔）仍未见 '\n'：把已累积内容按一整行处理，
-        // 兼容对端不追加换行的发送方式，保证连接判定与回显可用。
+        // 兼容对端不追加换行的发送方式，保证连接判定与 AT 应答可用。
         if (lineLen_ > 0u) {
             lineBuf_[lineLen_] = '\0';
             onLine(lineBuf_);
             lineLen_ = 0;
         }
+    }
+
+    // 二进制帧逐字节解析；解析失败/越界则丢弃当前帧并回到 Idle。
+    void feedBinary(uint8_t c) {
+        switch (binState_) {
+        case BinState::Sof2:
+            if (c == kFrameSof2) {
+                binBuf_[1] = c;
+                binIdx_ = 2;
+                binState_ = BinState::Len;
+            } else {
+                binState_ = BinState::Idle;
+            }
+            return;
+
+        case BinState::Len:
+            binBuf_[2] = c;
+            if (c == 0u || c > static_cast<uint8_t>(kFrameMax - 4u)) {
+                binState_ = BinState::Idle;
+            } else {
+                binLen_ = c; // 需要继续读取的 CMD+PAYLOAD 字节数
+                binIdx_ = 3;
+                binState_ = BinState::Body;
+            }
+            return;
+
+        case BinState::Body:
+            binBuf_[binIdx_++] = c;
+            if (binIdx_ >= static_cast<uint16_t>(3u + binLen_)) {
+                binState_ = BinState::Chk;
+            }
+            return;
+
+        case BinState::Chk: {
+            binBuf_[binIdx_] = c;
+            const uint8_t expect =
+                frameChecksum(&binBuf_[2], static_cast<uint16_t>(1u + binLen_));
+            if (c == expect) {
+                pushRxFrame(binBuf_, static_cast<uint16_t>(4u + binLen_));
+            }
+            binState_ = BinState::Idle;
+            return;
+        }
+
+        case BinState::Idle:
+        default:
+            binState_ = BinState::Idle;
+            return;
+        }
+    }
+
+    // 将校验通过的整帧压入接收队列（满则丢弃最新帧）。
+    void pushRxFrame(const uint8_t* frame, uint16_t len) {
+        const uint8_t next = static_cast<uint8_t>((rfTail_ + 1u) % kFrameRxSlots);
+        if (next == rfHead_) {
+            return;
+        }
+        uint16_t n = len;
+        if (n > kFrameMax) {
+            n = kFrameMax;
+        }
+        std::memcpy(rxFrames_[rfTail_], frame, n);
+        rxFramesLen_[rfTail_] = n;
+        rfTail_ = next;
     }
 
     // 判定是否为模块自身的 AT 命令回显碎片（连接建立过程中模块会输出 "AT\r"，
@@ -404,6 +521,18 @@ private:
     // 行组装
     char lineBuf_[kLineMax];
     uint16_t lineLen_;
+
+    // 二进制帧解析
+    BinState binState_;
+    uint8_t binBuf_[kFrameMax];
+    uint16_t binIdx_;
+    uint8_t binLen_;
+
+    // 接收帧队列
+    uint8_t rxFrames_[kFrameRxSlots][kFrameMax];
+    uint16_t rxFramesLen_[kFrameRxSlots];
+    uint8_t rfHead_;
+    uint8_t rfTail_;
 
     // AT 状态机
     AtPhase phase_;

@@ -17,6 +17,7 @@
 #include "app/Bluetooth.hpp"
 #include "app/Display.hpp"
 #include "app/Hardware.hpp"
+#include "app/Protocol.hpp"
 #include "app/UartReceiver.hpp"
 
 namespace app {
@@ -44,6 +45,12 @@ public:
         HAL_Delay(10);
 
         data_.measurement.init(TimeUnit::Milliseconds, kOnceDetectionTime);
+
+        // 初始工作状态归一到 Ready（历史代码未显式设置，导致首帧状态未定义；
+        // 上位机 START/CAL 命令依赖 Ready 分支才能被状态机受理）。
+        data_.workStatus = WorkState::Ready;
+        data_.hopeStatus = WorkState::Ready;
+        reportedStatus_ = WorkState::Ready;
 
         // 初始输入状态取反（0 表示错误态，与历史 SW/TILT/KEY_STATUS 一致）。
         data_.input.sw.begin(1);
@@ -82,13 +89,8 @@ public:
         /* 蓝牙：AT 配置/连接状态机与收发推进。 */
         g_bluetooth.poll();
 
-        /* 回显测试：收到一行数据即原样发回（连接态下生效，验证链路）。 */
-        if (g_bluetooth.available()) {
-            static char echoBuf[kLineMax];
-            if (g_bluetooth.readLine(echoBuf, sizeof(echoBuf)) > 0u) {
-                g_bluetooth.sendLine(echoBuf);
-            }
-        }
+        /* 应用层协议：消费上位机命令帧，并上报状态/错误/结果事件。 */
+        handleBluetooth();
 
         /* 显示按固定周期节流（原主循环 HAL_Delay(113) 的等价物）。 */
         const uint32_t now = HAL_GetTick();
@@ -133,6 +135,127 @@ private:
             data_.workStatus == WorkState::ErrLowPower || data_.workStatus == WorkState::ErrTilt
             || data_.workStatus == WorkState::ErrOpen
             || data_.workStatus == WorkState::ErrNoContainer);
+    }
+
+    // 蓝牙应用层：取出上位机二进制命令帧并分派，随后上报事件。
+    void handleBluetooth() {
+        uint8_t frame[kFrameMax];
+        uint16_t n;
+        while ((n = g_bluetooth.readFrame(frame, sizeof(frame))) > 0u) {
+            onHostFrame(frame, n);
+        }
+        reportEvents();
+    }
+
+    // 解析一条上位机命令帧（帧完整性/校验已在链路层完成）。
+    void onHostFrame(const uint8_t* frame, uint16_t len) {
+        if (len < 5u) {
+            return;
+        }
+        switch (static_cast<HostCmd>(frame[3])) {
+        case HostCmd::Start:
+            data_.hopeStatus = WorkState::Working;
+            break;
+        case HostCmd::Calibration:
+            data_.hopeStatus = WorkState::Calibration;
+            break;
+        case HostCmd::Stop:
+            data_.hopeStatus = WorkState::Ready;
+            break;
+        case HostCmd::StatusQuery:
+            sendStatus();
+            break;
+        default:
+            break;
+        }
+    }
+
+    // 上报状态迁移与检测/校准完成事件。一次性手持流程：完成即回到 Ready。
+    void reportEvents() {
+        if (data_.workStatus != reportedStatus_) {
+            reportedStatus_ = data_.workStatus;
+            sendState();
+            if (isError()) {
+                sendError();
+            }
+        }
+
+        if (data_.workStatus == WorkState::Working
+            && data_.measurement.flag() == ConversionFlag::Finished) {
+            sendResult(data_.measurement.result()); // result() 同时将 flag 复位为 Ready
+            data_.measurement.reset();
+            endRun();
+        } else if (
+            data_.workStatus == WorkState::Calibration
+            && data_.measurement.flag() == ConversionFlag::Finished) {
+            sendCalibration();
+            data_.measurement.reset();
+            endRun();
+        }
+    }
+
+    // 一次检测/校准结束：关 UV 与负载，回到 Ready（避免状态机立即重启）。
+    void endRun() {
+        setUvLevel(kUvCloseLevel);
+        dcCtrlOff();
+        data_.hopeStatus = WorkState::Ready;
+        data_.workStatus = WorkState::Ready;
+        reportedStatus_ = WorkState::Ready;
+    }
+
+    // 组帧并通过蓝牙发送；未连接或队列满时静默丢弃。
+    void sendDeviceFrame(DeviceCmd cmd, const uint8_t* payload, uint8_t payloadLen) {
+        uint8_t out[kFrameMax];
+        const uint16_t n = encodeFrame(
+            static_cast<uint8_t>(cmd), payload, payloadLen, out, sizeof(out));
+        if (n > 0u) {
+            g_bluetooth.sendBytes(out, n);
+        }
+    }
+
+    void sendState() {
+        const uint8_t payload[1] = {static_cast<uint8_t>(data_.workStatus)};
+        sendDeviceFrame(DeviceCmd::State, payload, sizeof(payload));
+    }
+
+    void sendError() {
+        const uint8_t payload[1] = {static_cast<uint8_t>(data_.workStatus)};
+        sendDeviceFrame(DeviceCmd::Error, payload, sizeof(payload));
+    }
+
+    void sendResult(float value) {
+        const int32_t milli = static_cast<int32_t>(value * 1000.0f);
+        const uint8_t payload[4] = {
+            static_cast<uint8_t>(milli & 0xFF),
+            static_cast<uint8_t>((milli >> 8) & 0xFF),
+            static_cast<uint8_t>((milli >> 16) & 0xFF),
+            static_cast<uint8_t>((milli >> 24) & 0xFF),
+        };
+        sendDeviceFrame(DeviceCmd::Result, payload, sizeof(payload));
+    }
+
+    void sendCalibration() {
+        const ConversionValue& cv = data_.measurement.value();
+        const int32_t milli = static_cast<int32_t>(cv.rawValue * 1000.0f);
+        const uint8_t payload[6] = {
+            static_cast<uint8_t>(milli & 0xFF),
+            static_cast<uint8_t>((milli >> 8) & 0xFF),
+            static_cast<uint8_t>((milli >> 16) & 0xFF),
+            static_cast<uint8_t>((milli >> 24) & 0xFF),
+            static_cast<uint8_t>(cv.uvLightLevel & 0xFF),
+            static_cast<uint8_t>((cv.uvLightLevel >> 8) & 0xFF),
+        };
+        sendDeviceFrame(DeviceCmd::Calibration, payload, sizeof(payload));
+    }
+
+    void sendStatus() {
+        const uint8_t payload[4] = {
+            static_cast<uint8_t>(data_.workStatus),
+            data_.progress,
+            static_cast<uint8_t>(data_.battery.level()),
+            static_cast<uint8_t>(g_bluetooth.connected() ? 1u : 0u),
+        };
+        sendDeviceFrame(DeviceCmd::Status, payload, sizeof(payload));
     }
 
     void runMeasurementTask() {
@@ -236,6 +359,7 @@ private:
     volatile bool adcPending_ = false;           // ISR 置位 / 主循环清零
     uint16_t adcSnapshot_[kAdcSampleCount] = {}; // ISR 中的样本快照
     uint32_t lastDisplayTick_ = 0;               // 上次显示刷新时刻（ms）
+    WorkState reportedStatus_ = WorkState::Ready; // 上次上报给上位机的工作状态
 };
 
 } // namespace
