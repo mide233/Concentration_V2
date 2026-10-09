@@ -154,9 +154,22 @@ fifo_lockfree_t msg_fifo = FIFO_LOCKFREE_INIT(msg_fifo, msg_buf, MSG_SIZE);
 
 ---
 
-## 5. 保留但已记录（未移除）
+## 5. `Core/Inc/FIFO_LOCKFREE.h` / `Core/Src/FIFO_LOCKFREE.cpp`（S7 删除）
+
+### 5.1 整模块
+```c
+typedef uint16_t fifo_data_t;
+typedef struct { fifo_data_t *buf; uint_fast8_t size; volatile uint_fast8_t head; volatile uint_fast8_t tail; } fifo_lockfree_t;
+#define FIFO_LOCKFREE_INIT(name, _buf, _size) { ... }
+void fifo_lockfree_reset / is_empty / is_full / put / get / available(...);
+```
+原位置：整文件。
+移除原因：全仓无任何 `fifo_lockfree_*` 调用点；`main.c` 中的 `msg_fifo` / `msg_buf` 用法已在 S4 移除（R6）。
+
+---
+
+## 6. 保留但已记录（未移除）
 
 - **`battery_level(float)`（`App.cpp`）**：作为外部 C 符号保留，但当前无调用点（`battery` 显示始终为 0）。保留以维持导出符号集合。
-- **FIFO_LOCKFREE 整模块**：S4 已移除 `main.c` 中的 `msg_fifo` / `msg_buf` 用法与 include；模块文件按计划在 S7 统一删除。
-- **UART 收帧路径**：有实际 DMA 副作用（R8），保留。
-- **`Concentration_Conversion_t::Unit` / `c_Unit`（R2）**：按“仅修 R3/R4”的决策保留原行为。
+- **UART 收帧路径**：有实际 DMA 副作用（R8），已迁至 `Core/Src/app/UartReceiver.cpp`，保留。
+- **`Measurement::unit_` / `c_Unit`（R2）**：按“仅修 R3/R4”的决策保留原行为。

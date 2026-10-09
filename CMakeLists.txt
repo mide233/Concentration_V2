@@ -51,7 +51,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/app/Display.cpp
     Core/Src/app/OledPanel.cpp
     Core/Src/app/UartReceiver.cpp
-    Core/Src/FIFO_LOCKFREE.cpp
     Core/Src/App.cpp
 )
 
