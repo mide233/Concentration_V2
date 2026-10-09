@@ -61,7 +61,7 @@
 - 通过 **ADC1（PA0 光电流 / PA1 电池分压）** 采样，DMA 循环搬运。
 - 通过 **I2C1 SSD1306 OLED（128×32）** 显示电量、蓝牙状态、进度条与文本。
 - 通过 **TIM2**（1 kHz）产生 ADC 触发（CH2，TRGO=OC2REF）与 UV 灯 PWM（CH4）。
-- 通过 **USART1（9600）** 连接 **JDY-31 蓝牙模块**（IDLE+DMA 收帧；AT 配置 + 文本行协议收发 + 连接状态检测，见 `app/Bluetooth.hpp`；R6 已消除）。
+- 通过 **USART1（9600）** 连接 **JDY-31 蓝牙模块**（IDLE+DMA 收帧；AT 配置 + 连接状态检测见 `app/Bluetooth.hpp`；上位机二进制帧协议见 `app/Protocol.hpp`，含 hopeStatus 接收与状态/错误/检测/校准上报；R6 已消除）。
 - 按键/开关：`TILT=PA2`、`KEY=PA7`、`SW=PA8`；充电/待机指示 `STDBY=PB4`、`CHRG=PB5`；负载控制 `DC_ctrl=PB8`；状态灯 `LED=PB12`。
 - 校准结果持久化到 Flash 末页绝对地址 `0x0800FC00`。
 
@@ -75,7 +75,7 @@ Concentration_V2/
 │   │   └── app/   AppConfig.hpp, Hardware.hpp, Measurement.hpp, Persistence.hpp,
 │   │              BatteryMonitor.hpp, InputDebounce.hpp, AppState.hpp,
 │   │              OledPanel.hpp, Display.hpp, UartReceiver.hpp,
-│   │              Bluetooth.hpp                             // C++20 用户模块（header-only）
+│   │              Bluetooth.hpp, Protocol.hpp               // C++20 用户模块（header-only）
 │   └── Src/   main.c, adc.c, dma.c, gpio.c, i2c.c, tim.c, usart.c,
 │              stm32f1xx_it.c, stm32f1xx_hal_msp.c,
 │              syscalls.c, sysmem.c, system_stm32f1xx.c,      // C（CubeMX 生成/保留）
@@ -126,7 +126,8 @@ main():
 | 显示底层 | `app/OledPanel.hpp` | `app::OledPanel`：SSD1306 128×32 I2C 底层驱动 |
 | 显示界面 | `app/Display.hpp` | `app::Display`：电池/蓝牙/圆点/进度条/文字的绘制与旋转 |
 | 串口接收 | `app/UartReceiver.hpp` | `app::UartReceiver`：IDLE+DMA 收帧（R8：中断仅清标志+置挂起，拷贝在主循环 `poll()`；`takeFrame()` 供消费） |
-| 蓝牙链路 | `app/Bluetooth.hpp` | `app::BluetoothLink`：JDY-31 AT 配置、文本行协议收发、连接状态（ENLOG）检测 |
+| 蓝牙链路 | `app/Bluetooth.hpp` | `app::BluetoothLink`：JDY-31 AT 配置、连接状态（ENLOG）检测；文本行（AT/状态）+ 二进制帧收发 |
+| 主协议 | `app/Protocol.hpp` | 二进制帧编解码（`AA 55 LEN CMD PAYLOAD CHK`，XOR 校验）：`HostCmd`（开始/校准/停止/查询）、`DeviceCmd`（状态/错误/结果/校准/状态应答） |
 | 中断 | `Core/Src/stm32f1xx_it.c` (C) | 异常/中断处理，调用 `UartReceiver_HandleIdle()` 与 HAL |
 | 外设初始化 | `adc.c/dma.c/gpio.c/i2c.c/tim.c/usart.c` (C) | CubeMX 生成，与 `.ioc` 一致（勿改） |
 
@@ -189,11 +190,14 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> AppData::adcValue[20]
         SW/TILT/KEY 消抖（读值≠缓存值累加，>5 次翻转状态）
 主循环: App_Poll() --(每 kDisplayPeriodMs)--> Display::update(battery.level(), g_bluetooth.connected(), progress)
         App_Poll() --(UART 挂起)--> UartReceiver::poll()   // R8：帧长度计算与拷贝
-        App_Poll() --> BluetoothLink::poll()                // 消费 takeFrame()，AT 状态机/文本行收发/回显
+        App_Poll() --> BluetoothLink::poll()                // 消费 takeFrame()，AT 状态机/连接状态文本/二进制帧解析
+        App_Poll() --> App::handleBluetooth()               // 解析上位机命令帧(Start/Cal/Stop/StatusQuery) -> hopeStatus
+                                                            //   并上报 DeviceCmd(State/Error/Result/Calibration/Status)
 ```
 - 屏幕进度 `progress`：校准/测量中来自 `Measurement::detectionTime()`，否则来自 `battery.adc()/V_MAX*100`（当 `BattStatus != Normal`）。
 - 电池电量 `battery.level()` 历史上从不被自动计算（保持原行为），因此未显式设置时显示为 0。
 - 蓝牙图标状态由 `BluetoothLink::connected()` 提供（ENLOG 文本解析），不再是硬编码常量。
+- 上位机命令经 `app/Protocol.hpp` 二进制帧传输：`Start`/`Calibration`/`Stop` 写入 `AppData::hopeStatus`；设备端在运行中上报 `State`(状态变化)、`Error`(进入错误态)、`Result`(检测完成) 与 `Calibration`(校准完成)；完成后自动回到 `Ready` 并关闭 UV/DC（一次性流程）。
 - `App::poll()` 每轮处理一次挂起的 ADC 快照（与历史“每次 DMA 完成处理一次”节拍一致），并调用 `UartReceiver::poll()` 与 `BluetoothLink::poll()`；显示、UART 与蓝牙处理均在主循环上下文，不阻塞中断。
 
 ### 2.3 控制流 / 状态机
@@ -322,7 +326,7 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 - 布局与枚举值有 `static_assert` 守卫；配置页已在链接脚本预留（R4 已修复）。写入语义见 `PersistentStore::save`。
 
 ### 4.7 资源约束
-- 当前占用（Debug `-O0`）：FLASH **40400 B / 63 KB ≈ 62.6%**，RAM **5376 B / 20 KB ≈ 26.3%**（`text 40388 / data 12 / bss 5360`）。
+- 当前占用（Debug `-O0`）：FLASH **42104 B / 63 KB ≈ 65.3%**，RAM **5464 B / 20 KB ≈ 26.7%**（`text 42092 / data 12 / bss 5448`）。
 - 配置页 `0x0800FC00` 已从 FLASH 区域剔除（63K）；固件增长至 63K 上限前需扩容或迁移数据。
 - 资源紧张时优先减小 `printf`/浮点重依赖；**不要引入 STL / `std::array`**（会带入 libstdc++/printf/malloc，见 [4.9](#49-c-使用规范)）。
 
@@ -376,7 +380,7 @@ openocd -f tools/openocd.cfg -c "init; reset halt; stm32f1x mass_erase 0; reset 
 
 ## 附录 A. 基线与静态分析
 
-- 当前基线（Debug `-O0`，63 KB 区域）：FLASH **40400 B（62.6%）**、RAM **5376 B（26.3%）**（`text 40388 / data 12 / bss 5360`）；编译**零告警**。
+- 当前基线（Debug `-O0`，63 KB 区域）：FLASH **42104 B（65.3%）**、RAM **5464 B（26.7%）**（`text 42092 / data 12 / bss 5448`）；编译**零告警**。
 - 历史基线（阶段 1，C 时代，64 KB）：FLASH 27744 B（42.33%）、RAM 3784 B（18.48%）；`bin` sha256 `dbd2a8f1…8cf6`、`hex` sha256 `d3a782a9…d710`。逐字节 sha256 仅用于阶段 0–5 的等价验证，重写/修复后不再作为验收标准（见 [4.9](#49-c-使用规范)）。
 - 静态分析（clang-tidy 历史结果）：`FixedAddressDereference`（对应 R3/R4，均已修）、`DeadStores`（原 `OLED.c` 的 `ny`，已随重写消除）；其余风格类告警已随重写大部分消除。
 
