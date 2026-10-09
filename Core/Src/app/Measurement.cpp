@@ -4,9 +4,8 @@ namespace app {
 
 void Measurement::init(TimeUnit timeUnit, float onceDetectionTime)
 {
-    // [R2] 历史遗留：c_Unit 未初始化即参与运算，结果写入从不读取的 unit_。
-    //      按“仅修 R3/R4”的决策保留原行为。
-    float c_Unit;
+    // [R2 已修复] 原历史代码存在未初始化局部量 c_Unit，且其结果只写入从不读取的
+    //             unit_ 字段。此处直接删除该无用字段与赋值，消除未定义行为。
     onceDetectionTime_ = onceDetectionTime;
 
     if (timeUnit == TimeUnit::Seconds) {
@@ -20,8 +19,6 @@ void Measurement::init(TimeUnit timeUnit, float onceDetectionTime)
     }
 
     flag_ = PersistentStore::load(value_) ? ConversionFlag::Ready : ConversionFlag::NotInitialized;
-
-    unit_ = timeUnit_ * c_Unit;
 }
 
 void Measurement::update(float current, float deltaTime)

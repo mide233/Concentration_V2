@@ -31,7 +31,6 @@ public:
     [[nodiscard]] float detectionTime() const { return detectionTime_; }
 
 private:
-    float unit_ = 0.0f; // [R2] 历史字段：写入未初始化值且从不读取，按决策保留原行为
     float timeUnit_ = 0.0f;
     float detectionTime_ = 0.0f;
     float onceDetectionTime_ = 0.0f;
