@@ -4,7 +4,7 @@
  * @brief   应用层逻辑（C++）：状态机、ADC 完成回调、电量与进度计算。
  *
  * 由 main.c 与 HAL 回调驱动；对外仅暴露 App.h 中的 C 接口以及 HAL 的
- * HAL_ADC_ConvCpltCallback。无堆分配、无异常/RTTI、无全局构造函数。
+ * HAL_ADC_ConvCpltCallback。无堆分配、无异常/RTTI、无全局动态构造。
  ******************************************************************************
  */
 
@@ -16,11 +16,16 @@
 #include "usart.h"
 #include "OLED.h"
 
+#include "app/AppConfig.hpp"
+#include "app/AppState.hpp"
+#include "app/Hardware.hpp"
+
 extern "C" {
 /* main.c 中定义的 UART 接收缓冲区（stm32f1xx_it.c 亦以 extern 引用） */
 extern uint8_t rx_dma_buffer[];
 }
 
+namespace app {
 namespace {
 
 /*
@@ -28,294 +33,244 @@ namespace {
  * 原先散落在 main.c 的全局 my_data / hardware_status 及其处理函数，
  * 现统一封装为该类的成员与方法，经 g_app 单例访问。
  */
-class App
-{
+class App {
 public:
     void init();
     void updateDisplay();
     void onAdcComplete();
 
 private:
-    void Average_filtering(uint16_t *input_data, uint16_t num_channels, uint16_t total_samples, uint16_t *output_avg);
-    void Concentration_Conversion_task();
-    void CC_set_work_status();
+    void averageFiltering(uint16_t *input, uint16_t numChannels, uint16_t totalSamples, uint16_t *out);
+    void runMeasurementTask();
+    void updateWorkStatus();
 
-    hardware_status_t hw; // 按键/开关硬件状态（原全局 hardware_status）
-    my_data_t data;       // 应用运行数据（原全局 my_data）
+    AppData data_;
 };
 
 } // namespace
 
 // 文件内唯一实例：常量静态初始化（无动态构造、无 .init_array 项）。
-constinit App g_app;
+App g_app;
 
 void App::init()
 {
-    // 1. 启动DMA接收，让数据在后台自动搬运到 rx_dma_buffer[reference:22]
+    // 启动 UART DMA 接收与空闲中断。
     HAL_UART_Receive_DMA(&huart1, rx_dma_buffer, RX_BUFFER_SIZE);
-
-    // 2. 开启USART1的空闲中断[reference:23]
     __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
 
-    UVlight_level_update(CLOSE_level);
-    DC_ctrl_OFF();
+    setUvLevel(kUvCloseLevel);
+    dcCtrlOff();
     HAL_TIM_Base_Start_IT(&htim2);
     HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
     HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)&data.ADC_value[0], 20);
+    HAL_ADC_Start_DMA(&hadc1, reinterpret_cast<uint32_t *>(&data_.adcValue[0]), kAdcSampleCount);
     HAL_Delay(10);
 
-    Concentration_Conversion_init(&data.Concentration_Conversion, ms, 100.0f);
-    data.hardware_status = &hw;
-    data.hardware_status->SW_status = 1 - SW_STATUS;
-    data.hardware_status->TILT_status = 1 - TILT_STATUS;
-    data.hardware_status->KEY_status = 1 - KEY_STATUS;
+    data_.measurement.init(TimeUnit::Milliseconds, kOnceDetectionTime);
+
+    // 初始输入状态取反（0 表示错误态，与历史 SW/TILT/KEY_STATUS 一致）。
+    data_.input.swStatus = 1;
+    data_.input.tiltStatus = 1;
+    data_.input.keyStatus = 1;
 }
 
 void App::updateDisplay()
 {
-    OLED_Update(data.BAT.battery_level, 1, data.progress);
+    OLED_Update(data_.battery.level, 1, data_.progress);
 }
 
-void App::Average_filtering(uint16_t *input_data, uint16_t num_channels, uint16_t total_samples, uint16_t *output_avg)
+void App::averageFiltering(uint16_t *input, uint16_t numChannels, uint16_t totalSamples, uint16_t *out)
 {
-    uint16_t samples_per_channel = total_samples / num_channels;
+    const uint16_t samplesPerChannel = totalSamples / numChannels;
 
-    for (uint16_t ch = 0; ch < num_channels; ch++)
-    {
+    for (uint16_t ch = 0; ch < numChannels; ch++) {
         uint32_t sum = 0;
-        for (uint16_t s = 0; s < samples_per_channel; s++)
-        {
-            sum += input_data[ch + s * num_channels];
+        for (uint16_t s = 0; s < samplesPerChannel; s++) {
+            sum += input[ch + s * numChannels];
         }
-        output_avg[ch] = (uint16_t)(sum / samples_per_channel);
+        out[ch] = static_cast<uint16_t>(sum / samplesPerChannel);
     }
 }
 
-void App::Concentration_Conversion_task()
+void App::runMeasurementTask()
 {
-    if (data.work_status == work_status_e::calibration)
-    {
-        Concentration_Conversion_calibration(&data.Concentration_Conversion, data.ADC_INT, DETECTION_TIME);
-        if (data.Concentration_Conversion.Conversion_flag == not_finish)
-        {
-            UVlight_level_update(data.Concentration_Conversion.Conversion_value.UVlight_level);
+    if (data_.workStatus == WorkState::Calibration) {
+        data_.measurement.calibrate(data_.adcInt, kDetectionDeltaTime);
+        if (data_.measurement.flag() == ConversionFlag::InProgress) {
+            setUvLevel(data_.measurement.value().uvLightLevel);
         }
+    } else if (data_.workStatus == WorkState::Working) {
+        data_.measurement.update(data_.adcInt, kDetectionDeltaTime);
+    } else if (data_.workStatus == WorkState::Save) {
+        PersistentStore::save(data_.measurement.value(), data_.measurement.flag());
+        data_.workStatus = WorkState::Ready;
+    } else if (data_.workStatus == WorkState::Init) {
+        // 无操作
     }
-    else if (data.work_status == work_status_e::working)
-    {
-        Concentration_Conversion_update(&data.Concentration_Conversion, data.ADC_INT, DETECTION_TIME);
-    }
-    else if (data.work_status == work_status_e::SAVE)
-    {
-        Write_Conversion_Value(&data.Concentration_Conversion.Conversion_value, &data.Concentration_Conversion);
-        data.work_status = work_status_e::ready;
-    }
-    else if (data.work_status == work_status_e::INIT)
-    {
-        ;
-    }
-    if (data.work_status == work_status_e::calibration || data.work_status == work_status_e::working)
-    {
-        data.progress = (uint8_t)(data.Concentration_Conversion.detection_time);
-    }
-    else if (data.BAT.BAT_status != NORMAL)
-    {
-        data.progress = (uint8_t)(data.BAT.adc_BAT / V_MAX * 100);
+
+    if (data_.workStatus == WorkState::Calibration || data_.workStatus == WorkState::Working) {
+        data_.progress = static_cast<uint8_t>(data_.measurement.detectionTime());
+    } else if (data_.battery.status != BattStatus::Normal) {
+        data_.progress = static_cast<uint8_t>(data_.battery.adc / kBatteryVMax * 100);
     }
 }
 
-void App::CC_set_work_status()
+void App::updateWorkStatus()
 {
     /* ==================== 1. 意图状态转换 ==================== */
-    switch (data.work_status)
-    {
-    case work_status_e::ready:
-        if (data.hope_status == work_status_e::working && data.Concentration_Conversion.Conversion_flag != finish)
-        {
-            Concentration_Conversion_Reset(&data.Concentration_Conversion);
-            UVlight_level_update(data.Concentration_Conversion.Conversion_value.UVlight_level);
-            DC_ctrl_ON();
-            data.work_status = work_status_e::working;
-        }
-        else if (data.hope_status == work_status_e::calibration && data.Concentration_Conversion.Conversion_flag != finish)
-        {
-            Concentration_Conversion_Reset(&data.Concentration_Conversion);
-            UVlight_level_update(data.Concentration_Conversion.Conversion_value.UVlight_level);
-            DC_ctrl_ON();
-            data.work_status = work_status_e::calibration;
-        }
-        else if (data.hope_status == work_status_e::SAVE)
-        {
-            data.work_status = work_status_e::SAVE;
-        }
-        break;
+    switch (data_.workStatus) {
+        case WorkState::Ready:
+            if (data_.hopeStatus == WorkState::Working && data_.measurement.flag() != ConversionFlag::Finished) {
+                data_.measurement.reset();
+                setUvLevel(data_.measurement.value().uvLightLevel);
+                dcCtrlOn();
+                data_.workStatus = WorkState::Working;
+            } else if (data_.hopeStatus == WorkState::Calibration && data_.measurement.flag() != ConversionFlag::Finished) {
+                data_.measurement.reset();
+                setUvLevel(data_.measurement.value().uvLightLevel);
+                dcCtrlOn();
+                data_.workStatus = WorkState::Calibration;
+            } else if (data_.hopeStatus == WorkState::Save) {
+                data_.workStatus = WorkState::Save;
+            }
+            break;
 
-    case work_status_e::working:
-    case work_status_e::calibration:
-    case work_status_e::INIT:
-        if (data.hope_status == work_status_e::ready && data.Concentration_Conversion.Conversion_flag == finish)
-        {
-            data.result = get_Result(&data.Concentration_Conversion);
-            data.work_status = work_status_e::ready;
-        }
-        else if (data.hope_status != work_status_e::ready && data.Concentration_Conversion.Conversion_flag == finish)
-        {
-            UVlight_level_update(CLOSE_level);
-            DC_ctrl_OFF();
-        }
-        else if (data.hope_status == work_status_e::ready && data.Concentration_Conversion.Conversion_flag == not_finish)
-        {
-            UVlight_level_update(CLOSE_level);
-            DC_ctrl_OFF();
-            data.work_status = work_status_e::ready;
-        }
-        else if (data.hope_status == work_status_e::ready && data.Concentration_Conversion.Conversion_flag == ready)
-        {
-            UVlight_level_update(CLOSE_level);
-            DC_ctrl_OFF();
-            data.work_status = work_status_e::ready;
-        }
-        if (data.hardware_status->TILT_status == TILT_STATUS)
-            data.work_status = work_status_e::err_TILT;
-        else if (data.hardware_status->SW_status == SW_STATUS)
-            data.work_status = work_status_e::err_open;
-        else if (data.hardware_status->KEY_status == KEY_STATUS)
-            data.work_status = work_status_e::err_no_cap;
-        break;
+        case WorkState::Working:
+        case WorkState::Calibration:
+        case WorkState::Init:
+            if (data_.hopeStatus == WorkState::Ready && data_.measurement.flag() == ConversionFlag::Finished) {
+                data_.result = data_.measurement.result();
+                data_.workStatus = WorkState::Ready;
+            } else if (data_.hopeStatus != WorkState::Ready && data_.measurement.flag() == ConversionFlag::Finished) {
+                setUvLevel(kUvCloseLevel);
+                dcCtrlOff();
+            } else if (data_.hopeStatus == WorkState::Ready && data_.measurement.flag() == ConversionFlag::InProgress) {
+                setUvLevel(kUvCloseLevel);
+                dcCtrlOff();
+                data_.workStatus = WorkState::Ready;
+            } else if (data_.hopeStatus == WorkState::Ready && data_.measurement.flag() == ConversionFlag::Ready) {
+                setUvLevel(kUvCloseLevel);
+                dcCtrlOff();
+                data_.workStatus = WorkState::Ready;
+            }
+            if (data_.input.tiltStatus == 0)
+                data_.workStatus = WorkState::ErrTilt;
+            else if (data_.input.swStatus == 0)
+                data_.workStatus = WorkState::ErrOpen;
+            else if (data_.input.keyStatus == 0)
+                data_.workStatus = WorkState::ErrNoContainer;
+            break;
 
-    case work_status_e::err_TILT:
-    case work_status_e::err_open:
-    case work_status_e::err_low_pow:
-    case work_status_e::err_no_cap:
-        if (data.hope_status == work_status_e::ready)
-        {
-            data.work_status = work_status_e::ready;
-        }
-        break;
+        case WorkState::ErrTilt:
+        case WorkState::ErrOpen:
+        case WorkState::ErrLowPower:
+        case WorkState::ErrNoContainer:
+            if (data_.hopeStatus == WorkState::Ready) {
+                data_.workStatus = WorkState::Ready;
+            }
+            break;
 
-    default:
-        break;
+        default:
+            break;
     }
 
-    /* ==================== 3. 低电量检测 ==================== */
-    // if (my_data->BAT.battery_level <= 1 &&
-    //     my_data->work_status != work_status_e::working &&
-    //     my_data->work_status != work_status_e::calibration &&
-    //     my_data->BAT.BAT_status != CHRG)
-    // {
-    //     my_data->work_status = work_status_e::err_low_pow;
-    // }
+    /* ==================== 3. 低电量检测（历史代码已注释，见 docs/DEAD_CODE.md） ==================== */
 
     /* ==================== 4. 错误恢复 ==================== */
-    if (data.work_status == work_status_e::err_low_pow &&
-        (data.BAT.battery_level > 2 || data.BAT.BAT_status == SHDBY))
-    {
-        data.work_status = work_status_e::ready;
+    if (data_.workStatus == WorkState::ErrLowPower &&
+        (data_.battery.level > 2 || data_.battery.status == BattStatus::Standby)) {
+        data_.workStatus = WorkState::Ready;
     }
-    if (data.work_status == work_status_e::err_open &&
-        data.hardware_status->SW_status != SW_STATUS)
-    {
-        data.work_status = work_status_e::ready;
+    if (data_.workStatus == WorkState::ErrOpen && data_.input.swStatus != 0) {
+        data_.workStatus = WorkState::Ready;
     }
-    if (data.work_status == work_status_e::err_TILT &&
-        data.hardware_status->TILT_status != TILT_STATUS)
-    {
-        data.work_status = work_status_e::ready;
+    if (data_.workStatus == WorkState::ErrTilt && data_.input.tiltStatus != 0) {
+        data_.workStatus = WorkState::Ready;
     }
-    if (data.work_status == work_status_e::err_no_cap &&
-        data.hardware_status->KEY_status != KEY_STATUS)
-    {
-        data.work_status = work_status_e::ready;
+    if (data_.workStatus == WorkState::ErrNoContainer && data_.input.keyStatus != 0) {
+        data_.workStatus = WorkState::Ready;
     }
 
     /* ==================== 5. 电池状态更新 ==================== */
-    if (HAL_GPIO_ReadPin(SHDBY_GPIO_Port, SHDBY_Pin) == GPIO_PIN_RESET)
-    {
-        data.BAT.BAT_status = SHDBY;
+    if (HAL_GPIO_ReadPin(SHDBY_GPIO_Port, SHDBY_Pin) == GPIO_PIN_RESET) {
+        data_.battery.status = BattStatus::Standby;
+    } else if (HAL_GPIO_ReadPin(CHRG_GPIO_Port, CHRG_Pin) == GPIO_PIN_RESET) {
+        data_.battery.status = BattStatus::Charging;
+    } else {
+        data_.battery.status = BattStatus::Normal;
     }
-    else if (HAL_GPIO_ReadPin(CHRG_GPIO_Port, CHRG_Pin) == GPIO_PIN_RESET)
-    {
-        data.BAT.BAT_status = CHRG;
-    }
-    else
-    {
-        data.BAT.BAT_status = NORMAL;
-    }
-}
-
-/* 电量等级换算：保留原 main.c 的外部 C 符号（main.h 已声明），不作为 App 成员。 */
-extern "C" int battery_level(float voltage)
-{
-    if (voltage >= V_MAX)
-        return 5;
-    if (voltage <= V_MIN)
-        return 0;
-
-    // 计算线性比例并四舍五入到最近整数
-    float ratio = (voltage - V_MIN) / (V_MAX - V_MIN);
-    int level = (int)(ratio * 5 + 0.5f); // 1~5
-
-    // 安全检查
-    if (level < 0)
-        level = 0;
-    if (level > 5)
-        level = 5;
-    return level;
 }
 
 void App::onAdcComplete()
 {
-    Average_filtering(data.ADC_value, 2, 20, data.ADC_avg);
-    CC_set_work_status();
-    data.ADC_INT = data.ADC_avg[ADC_INT_CHANNEL];
-    data.BAT.adc_BAT = data.ADC_avg[ADC_BAT_CHANNEL];
-    Concentration_Conversion_task();
-    if (data.work_status == work_status_e::working || data.work_status == work_status_e::calibration)
-    {
-        if (HAL_GPIO_ReadPin(SW_GPIO_Port, SW_Pin) != data.hardware_status->SW_status)
-        {
-            data.hardware_status->SW_times++;
+    averageFiltering(data_.adcValue, kAdcChannelCount, kAdcSampleCount, data_.adcAvg);
+    updateWorkStatus();
+    data_.adcInt = data_.adcAvg[kAdcIntChannel];
+    data_.battery.adc = data_.adcAvg[kAdcBatChannel];
+    runMeasurementTask();
+
+    if (data_.workStatus == WorkState::Working || data_.workStatus == WorkState::Calibration) {
+        if (HAL_GPIO_ReadPin(SW_GPIO_Port, SW_Pin) != data_.input.swStatus) {
+            data_.input.swTimes++;
         }
-        if (HAL_GPIO_ReadPin(TILT_GPIO_Port, TILT_Pin) != data.hardware_status->TILT_status)
-        {
-            data.hardware_status->TILT_times++;
+        if (HAL_GPIO_ReadPin(TILT_GPIO_Port, TILT_Pin) != data_.input.tiltStatus) {
+            data_.input.tiltTimes++;
         }
-        if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) != data.hardware_status->KEY_status)
-        {
-            data.hardware_status->KEY_times++;
+        if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) != data_.input.keyStatus) {
+            data_.input.keyTimes++;
         }
-        if (data.hardware_status->SW_times > 5)
-        {
-            data.hardware_status->SW_times = 0;
-            data.hardware_status->SW_status = 1 - data.hardware_status->SW_status;
+        if (data_.input.swTimes > kDebounceThreshold) {
+            data_.input.swTimes = 0;
+            data_.input.swStatus = 1 - data_.input.swStatus;
         }
-        if (data.hardware_status->TILT_times > 5)
-        {
-            data.hardware_status->TILT_times = 0;
-            data.hardware_status->TILT_status = 1 - data.hardware_status->TILT_status;
+        if (data_.input.tiltTimes > kDebounceThreshold) {
+            data_.input.tiltTimes = 0;
+            data_.input.tiltStatus = 1 - data_.input.tiltStatus;
         }
-        if (data.hardware_status->KEY_times > 5)
-        {
-            data.hardware_status->KEY_times = 0;
-            data.hardware_status->KEY_status = 1 - data.hardware_status->KEY_status;
+        if (data_.input.keyTimes > kDebounceThreshold) {
+            data_.input.keyTimes = 0;
+            data_.input.keyStatus = 1 - data_.input.keyStatus;
         }
     }
 }
 
+} // namespace app
+
+/* 电量等级换算：保留原外部 C 符号（当前无调用点，见 docs/DEAD_CODE.md）。 */
+extern "C" int battery_level(float voltage)
+{
+    if (voltage >= app::kBatteryVMax) {
+        return 5;
+    }
+    if (voltage <= app::kBatteryVMin) {
+        return 0;
+    }
+
+    const float ratio = (voltage - app::kBatteryVMin) / (app::kBatteryVMax - app::kBatteryVMin);
+    int level = static_cast<int>(ratio * 5 + 0.5f);
+
+    if (level < 0) {
+        level = 0;
+    }
+    if (level > 5) {
+        level = 5;
+    }
+    return level;
+}
+
 extern "C" void App_Init(void)
 {
-    g_app.init();
+    app::g_app.init();
 }
 
 extern "C" void App_UpdateDisplay(void)
 {
-    g_app.updateDisplay();
+    app::g_app.updateDisplay();
 }
 
 /* HAL 回调入口：与原先在 main.c 中的函数名/签名一致（C 链接）。 */
 extern "C" void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-    g_app.onAdcComplete();
+    app::g_app.onAdcComplete();
 }

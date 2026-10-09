@@ -45,7 +45,8 @@ add_subdirectory(cmake/stm32cubemx)
 
 # User sources (not managed by STM32CubeMX)
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    Core/Src/Concentration_Conversion.cpp
+    Core/Src/app/Persistence.cpp
+    Core/Src/app/Measurement.cpp
     Core/Src/FIFO_LOCKFREE.cpp
     Core/Src/OLED.cpp
     Core/Src/App.cpp

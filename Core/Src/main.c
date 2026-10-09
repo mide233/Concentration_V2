@@ -27,7 +27,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "Concentration_Conversion.h"
 #include "OLED.h"
 
 #include "FIFO_LOCKFREE.h"
