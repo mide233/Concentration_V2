@@ -27,10 +27,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "Concentration_Conversion.h"
-#include "OLED.h"
-
-#include "FIFO_LOCKFREE.h"
 #include "App.h"
 /* USER CODE END Includes */
 
@@ -63,18 +59,6 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t I = 0;
-// my_data / hardware_status 已迁移至 App.cpp 中的 App 单例 (g_app)
-// uint32_t ndtr;
-#define MSG_SIZE 32
-static fifo_data_t msg_buf[MSG_SIZE];
-fifo_lockfree_t msg_fifo = FIFO_LOCKFREE_INIT(msg_fifo, msg_buf, MSG_SIZE);
-
-uint8_t rx_dma_buffer[RX_BUFFER_SIZE]; // DMA搬运数据的缓冲区[reference:21]
-volatile uint8_t rx_frame_ready = 0;   // 帧接收完成标志
-uint8_t rx_work_buffer[RX_BUFFER_SIZE];// 用于处理的工作缓冲区
-uint16_t rx_frame_len = 0;             // 当前帧长度
-//  extern I2C_HandleTypeDef hi2c1;  // 已初始化的 I2C 句柄
 
 /* USER CODE END 0 */
 
@@ -113,24 +97,16 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-    App_Init();
-    OLED_Init();
-    OLED_Set_Dot(1); // 显示右侧圆点
-
-    // HAL_ADC_Start_DMA(&hadc1, (uint32_t *)my_data.ADC_value[0], 20);
-    // // HAL_DMA_Start_IT(&hdma_adc1, (uint32_t)&hadc1.Instance->DR, (uint32_t)my_data.ADC_value[0], 20);
-    // HAL_TIM_Base_Start_IT(&htim2);
-    // HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
-
+  App_Init(); // 启动外设、测量状态机与显示
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
     while (1)
     {
-        App_UpdateDisplay();
-        HAL_Delay(113);
-        
+        App_Poll(); // 处理挂起的 ADC 样本并按周期刷新显示
+        __WFI();    // 无中断时进入低功耗，等待 ADC/UART/SysTick
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -185,7 +161,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-// 应用层逻辑（状态机 / ADC 完成回调 / 电量与进度计算）已迁移至 Core/Src/App.cpp。
 /* USER CODE END 4 */
 
 /**

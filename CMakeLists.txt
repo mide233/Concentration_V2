@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.22)
 #
 
 # Setup compiler settings
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
@@ -44,16 +44,16 @@ add_executable(${CMAKE_PROJECT_NAME})
 add_subdirectory(cmake/stm32cubemx)
 
 # User sources (not managed by STM32CubeMX)
+# 用户模块已头文件化（定义与声明一体，头文件仅保留常量/类定义）；
+# App.cpp 是唯一的 C++ 编译单元。
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    Core/Src/Concentration_Conversion.cpp
-    Core/Src/FIFO_LOCKFREE.cpp
-    Core/Src/OLED.cpp
-    Core/Src/App.cpp
+    Core/Src/app/App.cpp
 )
 
 # User include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Inc
+    Core/Inc/app
 )
 
 # User symbols (macros)

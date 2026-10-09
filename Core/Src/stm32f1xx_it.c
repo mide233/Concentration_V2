@@ -51,14 +51,14 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-extern uint8_t rx_dma_buffer[];
-extern volatile uint8_t rx_frame_ready;
-extern uint8_t rx_work_buffer[];
-extern uint16_t rx_frame_len;
+/* UART 收帧逻辑已迁移至 Core/Src/app/UartReceiver.cpp（风险 R8，行为不变）。 */
+extern void UartReceiver_HandleIdle(void);
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc1;
+extern DMA_HandleTypeDef hdma_i2c1_tx;
+extern I2C_HandleTypeDef hi2c1;
 extern UART_HandleTypeDef huart1;
 /* USER CODE BEGIN EV */
 
@@ -217,32 +217,54 @@ void DMA1_Channel1_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles DMA1 channel6 global interrupt.
+  */
+void DMA1_Channel6_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel6_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel6_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_i2c1_tx);
+  /* USER CODE BEGIN DMA1_Channel6_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel6_IRQn 1 */
+}
+
+/**
+  * @brief This function handles I2C1 event interrupt.
+  */
+void I2C1_EV_IRQHandler(void)
+{
+  /* USER CODE BEGIN I2C1_EV_IRQn 0 */
+
+  /* USER CODE END I2C1_EV_IRQn 0 */
+  HAL_I2C_EV_IRQHandler(&hi2c1);
+  /* USER CODE BEGIN I2C1_EV_IRQn 1 */
+
+  /* USER CODE END I2C1_EV_IRQn 1 */
+}
+
+/**
+  * @brief This function handles I2C1 error interrupt.
+  */
+void I2C1_ER_IRQHandler(void)
+{
+  /* USER CODE BEGIN I2C1_ER_IRQn 0 */
+
+  /* USER CODE END I2C1_ER_IRQn 0 */
+  HAL_I2C_ER_IRQHandler(&hi2c1);
+  /* USER CODE BEGIN I2C1_ER_IRQn 1 */
+
+  /* USER CODE END I2C1_ER_IRQn 1 */
+}
+
+/**
   * @brief This function handles USART1 global interrupt.
   */
 void USART1_IRQHandler(void)
 {
   /* USER CODE BEGIN USART1_IRQn 0 */
-/* 判断是否为USART1的空闲中断 */
-    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET) {
-        // 1. 清除空闲中断标志位[reference:25]
-        __HAL_UART_CLEAR_IDLEFLAG(&huart1);
-
-        // 2. 停止DMA接收，防止数据被后续覆盖[reference:26]
-        HAL_UART_DMAStop(&huart1);
-
-        // 3. 计算本次接收到的数据长度[reference:27]
-        rx_frame_len = RX_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(huart1.hdmarx);
-        
-        // 4. 将数据从DMA缓冲区拷贝到工作缓冲区，以便安全处理
-        memcpy(rx_work_buffer, rx_dma_buffer, rx_frame_len);
-
-        // 5. 设置标志，通知主循环有新的数据帧需要处理
-        rx_frame_ready = 1;
-
-        // 6. 重新启动DMA接收，准备接收下一帧[reference:28]
-        HAL_UART_Receive_DMA(&huart1, rx_dma_buffer, RX_BUFFER_SIZE);
-    }
-
+    UartReceiver_HandleIdle();
   /* USER CODE END USART1_IRQn 0 */
   HAL_UART_IRQHandler(&huart1);
   /* USER CODE BEGIN USART1_IRQn 1 */

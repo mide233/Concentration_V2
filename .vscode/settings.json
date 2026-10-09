@@ -17,5 +17,23 @@
     ],
     "[c]": {
         "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
-    }
+    },
+    "cSpell.words": [
+        "CHRG",
+        "Cplt",
+        "cubemx",
+        "hadc",
+        "hdmarx",
+        "htim",
+        "huart",
+        "IDLEFLAG",
+        "ihex",
+        "libob",
+        "lowpower",
+        "OBJCOPY",
+        "OLED",
+        "RTTI",
+        "Uart",
+        "USART"
+    ]
 }

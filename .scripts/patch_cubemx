@@ -15,6 +15,7 @@ line endings of the generated file untouched.
 import argparse
 import json
 import pathlib
+import re
 
 # Files produced by STM32CubeMX that are not used by this project.
 STALE_FILES = [
@@ -22,6 +23,7 @@ STALE_FILES = [
 ]
 
 CUBEMX_CMAKE = pathlib.Path("cmake/stm32cubemx/CMakeLists.txt")
+LINKER_SCRIPT = pathlib.Path("STM32F103XX_FLASH.ld")
 
 # Canonical presets, so a CubeMX regeneration cannot silently drop them.
 PRESETS = {
@@ -92,9 +94,32 @@ def remove_stale_files(root: pathlib.Path) -> None:
             print(f"removed stale {relative}")
 
 
+def patch_linker(root: pathlib.Path) -> None:
+    """Reserve the last flash page for calibration persistence (risk R4).
+
+    STM32CubeMX regenerates the linker script with ``LENGTH = 64K``, which
+    would let the firmware overlap the calibration page at 0x0800FC00.  Force
+    the FLASH region to 63K so that page stays reserved.
+    """
+    path = root / LINKER_SCRIPT
+    if not path.exists():
+        print(f"skip {LINKER_SCRIPT} (missing)")
+        return
+
+    text = path.read_text(encoding="utf-8")
+    patched = re.sub(
+        r"(FLASH \(rx\)\s*:\s*ORIGIN = 0x8000000, LENGTH = )64K",
+        r"\g<1>63K",
+        text,
+    )
+    if patched != text:
+        path.write_text(patched, encoding="utf-8")
+        print(f"reserved last flash page in {LINKER_SCRIPT}")
+
+
 def check_user_sources(root: pathlib.Path) -> None:
     cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
-    if "Concentration_Conversion.cpp" not in cmake:
+    if "Core/Src/app/Measurement.cpp" not in cmake:
         print(
             "warning: CMakeLists.txt does not list the user sources; "
             "STM32CubeMX may have overwritten it."
@@ -114,6 +139,7 @@ def main() -> None:
 
     remove_stale_files(root)
     patch_cubemx_cmake(root)
+    patch_linker(root)
     patch_presets(root)
     check_user_sources(root)
 
