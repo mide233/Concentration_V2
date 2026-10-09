@@ -14,6 +14,7 @@
 
 #include "app/AppConfig.hpp"
 #include "app/AppState.hpp"
+#include "app/Bluetooth.hpp"
 #include "app/Display.hpp"
 #include "app/Hardware.hpp"
 #include "app/UartReceiver.hpp"
@@ -30,6 +31,8 @@ public:
     void init() {
         // 启动 UART DMA 接收与空闲中断。
         g_uartReceiver.start();
+        // 蓝牙模块：复位链路状态、按芯片 UID 生成设备名并进入 AT 配置流程。
+        g_bluetooth.init();
 
         setUvLevel(kUvCloseLevel);
         dcCtrlOff();
@@ -52,9 +55,9 @@ public:
     }
 
     void updateDisplay() {
-        // TODO: connect bluetooth state to real
         display_.update(
-            static_cast<uint8_t>(data_.battery.level()), 0, data_.progress, data_.msg, isError());
+            static_cast<uint8_t>(data_.battery.level()), g_bluetooth.connected() ? 1 : 0,
+            data_.progress, data_.msg, isError());
     }
 
     // ADC DMA 完成中断：仅拷贝样本快照并置位
@@ -75,6 +78,17 @@ public:
 
         /* 处理 UART 收帧挂起（R8：拷贝移出中断，在此主循环上下文完成）。 */
         g_uartReceiver.poll();
+
+        /* 蓝牙：AT 配置/连接状态机与收发推进。 */
+        g_bluetooth.poll();
+
+        /* 回显测试：收到一行数据即原样发回（连接态下生效，验证链路）。 */
+        if (g_bluetooth.available()) {
+            static char echoBuf[kLineMax];
+            if (g_bluetooth.readLine(echoBuf, sizeof(echoBuf)) > 0u) {
+                g_bluetooth.sendLine(echoBuf);
+            }
+        }
 
         /* 显示按固定周期节流（原主循环 HAL_Delay(113) 的等价物）。 */
         const uint32_t now = HAL_GetTick();
@@ -242,3 +256,6 @@ extern "C" void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) { app::g_app.o
 
 /* C 接缝：供 stm32f1xx_it.c 调用 */
 extern "C" void UartReceiver_HandleIdle(void) { app::g_uartReceiver.handleIdleInterrupt(); }
+
+/* HAL UART 发送完成回调：驱动蓝牙发送队列。 */
+extern "C" void HAL_UART_TxCpltCallback(UART_HandleTypeDef*) { app::g_bluetooth.onTxComplete(); }

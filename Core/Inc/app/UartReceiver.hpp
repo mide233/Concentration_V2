@@ -14,8 +14,8 @@ namespace app {
  * USART1 接收：DMA 循环搬运 + IDLE 中断判定一帧结束。
  * R8：中断内不再做 DMAStop/memcpy/重启等阻塞操作，仅清 IDLE 标志并置挂起位；
  *     帧长度计算与拷贝在 poll()（主循环上下文）完成。RX DMA 保持循环运行。
- * 说明：收帧结果当前无消费者（见 docs/DEAD_CODE.md，风险 R6），本类仅保留
- *       收帧能力，不新增消费逻辑。
+ * 说明：收帧结果由 takeFrame() 在主循环消费（蓝牙模块，见 Bluetooth.hpp），
+ *       风险 R6（收帧无消费者）由此消除。
  */
 class UartReceiver {
 public:
@@ -61,8 +61,24 @@ public:
         }
         prevPos_ = pos;
 
-        /* 设置标志，通知有新的数据帧需要处理（当前无消费者） */
+        /* 设置标志，通知有新的数据帧可供 takeFrame() 消费 */
         frameReady_ = 1;
+    }
+
+    // 消费当前已就绪的一帧：拷贝至 out 并清除标志；返回拷贝字节数（无帧返回 0）。
+    uint16_t takeFrame(uint8_t* out, uint16_t cap)
+    {
+        if (!frameReady_) {
+            return 0;
+        }
+        frameReady_ = 0;
+
+        uint16_t len = frameLen_;
+        if (len > cap) {
+            len = cap;
+        }
+        std::memcpy(out, workBuffer_, len);
+        return len;
     }
 
 private:
