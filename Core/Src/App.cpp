@@ -234,6 +234,9 @@ void App::poll()
         processAdc();
     }
 
+    /* 处理 UART 收帧挂起（R8：拷贝移出中断，在此主循环上下文完成）。 */
+    g_uartReceiver.poll();
+
     /* 显示按固定周期节流（原主循环 HAL_Delay(113) 的等价物）。 */
     const uint32_t now = HAL_GetTick();
     if (now - lastDisplayTick_ >= kDisplayPeriodMs) {
