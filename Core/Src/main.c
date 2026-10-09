@@ -104,8 +104,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
     while (1)
     {
-        App_UpdateDisplay();
-        HAL_Delay(113);
+        App_Poll(); // 处理挂起的 ADC 样本并按周期刷新显示
+        __WFI();    // 无中断时进入低功耗，等待 ADC/UART/SysTick
         
     /* USER CODE END WHILE */
 

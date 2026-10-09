@@ -28,6 +28,9 @@ inline constexpr std::uint16_t kUvCloseLevel       = 0;      // UV 关闭亮度�
 /* 按键消抖：连续读到与当前状态不同的次数超过该值才翻转 */
 inline constexpr std::uint8_t kDebounceThreshold = 5;
 
+/* 显示刷新周期（ms）。原 main 循环 HAL_Delay(113)，R5 后改为主循环节流。 */
+inline constexpr std::uint32_t kDisplayPeriodMs = 113;
+
 } // namespace app
 
 #endif /* APP_APPCONFIG_HPP */
