@@ -97,7 +97,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-    App_Init(); // 启动外设、测量状态机与显示
+  App_Init(); // 启动外设、测量状态机与显示
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -106,7 +106,7 @@ int main(void)
     {
         App_Poll(); // 处理挂起的 ADC 样本并按周期刷新显示
         __WFI();    // 无中断时进入低功耗，等待 ADC/UART/SysTick
-        
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

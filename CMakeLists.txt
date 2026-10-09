@@ -51,7 +51,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/app/Display.cpp
     Core/Src/app/OledPanel.cpp
     Core/Src/app/UartReceiver.cpp
-    Core/Src/App.cpp
+    Core/Src/app/App.cpp
 )
 
 # User include paths
