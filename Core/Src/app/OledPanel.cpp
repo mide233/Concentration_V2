@@ -5,92 +5,92 @@
 #include "app/OledPanel.hpp"
 
 #include "i2c.h"
-#include "main.h"
-
 #include <cstring>
 
-namespace app {
-namespace {
-
-constexpr uint8_t kOledAddress = 0x78; // 7 位地址 0x3C 左移一位
-constexpr uint32_t kI2cTimeoutMs = 100;
-
-} // namespace
-
-// 写命令字节（控制字 0x00 + 命令）
-void OledPanel::writeCommand(uint8_t command)
+namespace app
 {
-    uint8_t buf[2] = {0x00, command};
-    HAL_I2C_Master_Transmit(&hi2c1, kOledAddress, buf, 2, kI2cTimeoutMs);
-}
+    namespace
+    {
 
-// 写数据字节（控制字 0x40 + 数据）
-void OledPanel::writeData(uint8_t data)
-{
-    uint8_t buf[2] = {0x40, data};
-    HAL_I2C_Master_Transmit(&hi2c1, kOledAddress, buf, 2, kI2cTimeoutMs);
-}
+        constexpr uint8_t kOledAddress   = 0x78; // 7 位地址 0x3C 左移一位
+        constexpr uint32_t kI2cTimeoutMs = 100;
 
-// 物理坐标置位（超界忽略）
-void OledPanel::setPixel(uint8_t x, uint8_t y)
-{
-    if (x >= kWidth || y >= kHeight)
-        return;
-    buffer_[(y / kPageBits) * kWidth + x] |= static_cast<uint8_t>(1u << (y % kPageBits));
-}
+    } // namespace
 
-// 清空物理缓冲
-void OledPanel::clear()
-{
-    std::memset(buffer_, 0, sizeof(buffer_));
-}
+    // 写命令字节（控制字 0x00 + 命令）
+    void OledPanel::writeCommand(uint8_t command)
+    {
+        uint8_t buf[2] = {0x00, command};
+        HAL_I2C_Master_Transmit(&hi2c1, kOledAddress, buf, 2, kI2cTimeoutMs);
+    }
 
-// 将物理缓冲按页写入面板
-void OledPanel::refresh()
-{
-    for (uint8_t page = 0; page < kHeight / kPageBits; page++) {
-        writeCommand(static_cast<uint8_t>(0xB0 + page));
-        writeCommand(0x00);
-        writeCommand(0x10);
-        for (uint8_t col = 0; col < kWidth; col++) {
-            writeData(buffer_[page * kWidth + col]);
+    // 写数据字节（控制字 0x40 + 数据）
+    void OledPanel::writeData(uint8_t data)
+    {
+        uint8_t buf[2] = {0x40, data};
+        HAL_I2C_Master_Transmit(&hi2c1, kOledAddress, buf, 2, kI2cTimeoutMs);
+    }
+
+    // 物理坐标置位（超界忽略）
+    void OledPanel::setPixel(uint8_t x, uint8_t y)
+    {
+        if (x >= kWidth || y >= kHeight)
+            return;
+        buffer_[(y / kPageBits) * kWidth + x] |= static_cast<uint8_t>(1u << (y % kPageBits));
+    }
+
+    // 清空物理缓冲
+    void OledPanel::clear()
+    {
+        std::memset(buffer_, 0, sizeof(buffer_));
+    }
+
+    // 将物理缓冲按页写入面板
+    void OledPanel::refresh()
+    {
+        for (uint8_t page = 0; page < kHeight / kPageBits; page++) {
+            writeCommand(static_cast<uint8_t>(0xB0 + page));
+            writeCommand(0x00);
+            writeCommand(0x10);
+            for (uint8_t col = 0; col < kWidth; col++) {
+                writeData(buffer_[page * kWidth + col]);
+            }
         }
     }
-}
 
-// 上电初始化序列
-void OledPanel::init()
-{
-    HAL_Delay(100);
-    writeCommand(0xAE); // display off
-    writeCommand(0xD5);
-    writeCommand(0x80);
-    writeCommand(0xA8);
-    writeCommand(0x1F); // multiplex 1/32
-    writeCommand(0xD3);
-    writeCommand(0x00);
-    writeCommand(0x40);
-    writeCommand(0x8D);
-    writeCommand(0x14); // charge pump on
-    writeCommand(0x20);
-    writeCommand(0x00);
-    writeCommand(0xA0);
-    writeCommand(0xC0);
-    writeCommand(0xDA);
-    writeCommand(0x02);
-    writeCommand(0x81);
-    writeCommand(0x8F);
-    writeCommand(0xD9);
-    writeCommand(0xF1);
-    writeCommand(0xDB);
-    writeCommand(0x40);
-    writeCommand(0xA4);
-    writeCommand(0xA6);
-    writeCommand(0x2E);
-    writeCommand(0xAF); // display on
+    // 上电初始化序列
+    void OledPanel::init()
+    {
+        HAL_Delay(100);
+        writeCommand(0xAE); // display off
+        writeCommand(0xD5);
+        writeCommand(0x80);
+        writeCommand(0xA8);
+        writeCommand(0x1F); // multiplex 1/32
+        writeCommand(0xD3);
+        writeCommand(0x00);
+        writeCommand(0x40);
+        writeCommand(0x8D);
+        writeCommand(0x14); // charge pump on
+        writeCommand(0x20);
+        writeCommand(0x00);
+        writeCommand(0xA0);
+        writeCommand(0xC0);
+        writeCommand(0xDA);
+        writeCommand(0x02);
+        writeCommand(0x81);
+        writeCommand(0x8F);
+        writeCommand(0xD9);
+        writeCommand(0xF1);
+        writeCommand(0xDB);
+        writeCommand(0x40);
+        writeCommand(0xA4);
+        writeCommand(0xA6);
+        writeCommand(0x2E);
+        writeCommand(0xAF); // display on
 
-    clear();
-    refresh();
-}
+        clear();
+        refresh();
+    }
 
 } // namespace app

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+find ./Core/Inc/app -type f \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" -o -name "*.cc" -o -name "*.cxx" \) -exec clang-format -i -style=file:./.clang-format {} \;
+find ./Core/Src/app -type f \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" -o -name "*.cc" -o -name "*.cxx" \) -exec clang-format -i -style=file:./.clang-format {} \;
+echo "clang-format done."

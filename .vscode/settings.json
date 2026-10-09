@@ -17,5 +17,17 @@
     ],
     "[c]": {
         "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
-    }
+    },
+    "cSpell.words": [
+        "Cplt",
+        "cubemx",
+        "hadc",
+        "htim",
+        "ihex",
+        "libob",
+        "OBJCOPY",
+        "OLED",
+        "RTTI",
+        "Uart"
+    ]
 }
