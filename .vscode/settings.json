@@ -22,12 +22,16 @@
         "Cplt",
         "cubemx",
         "hadc",
+        "hdmarx",
         "htim",
+        "huart",
+        "IDLEFLAG",
         "ihex",
         "libob",
         "OBJCOPY",
         "OLED",
         "RTTI",
-        "Uart"
+        "Uart",
+        "USART"
     ]
 }

@@ -3,8 +3,6 @@
  * @file    App.cpp
  * @brief   应用层逻辑（C++）：状态机、ADC 完成回调、电量与进度计算。
  *
- * 由 main.c 与 HAL 回调驱动；对外仅暴露 App.h 中的 C 接口以及 HAL 的
- * HAL_ADC_ConvCpltCallback。无堆分配、无异常/RTTI。
  ******************************************************************************
  */
 
@@ -24,7 +22,6 @@ namespace app
 {
     namespace
     {
-
         /*
          * 应用运行状态与业务逻辑。
          * 原先散落在 main.c 的全局 my_data / hardware_status 及其处理函数，
@@ -206,8 +203,6 @@ namespace app
 
     void App::onAdcComplete()
     {
-        /* R5：中断上下文只做最小工作——拷贝样本快照并置位；
-         *     滤波 / 状态机 / 测量等耗时逻辑移交主循环 poll() -> processAdc()。 */
         for (uint16_t i = 0; i < kAdcSampleCount; i++) {
             adcSnapshot_[i] = data_.adcValue[i];
         }
@@ -249,12 +244,6 @@ namespace app
     }
 
 } // namespace app
-
-/* 电量等级换算：保留原外部 C 符号（当前无调用点，见 docs/DEAD_CODE.md）。 */
-extern "C" int battery_level(float voltage)
-{
-    return app::BatteryMonitor::levelFor(voltage);
-}
 
 extern "C" void App_Init(void)
 {

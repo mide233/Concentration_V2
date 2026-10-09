@@ -161,7 +161,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-// 应用层逻辑（状态机 / ADC 完成回调 / 电量与进度计算）已迁移至 Core/Src/App.cpp。
 /* USER CODE END 4 */
 
 /**
