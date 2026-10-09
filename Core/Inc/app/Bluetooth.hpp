@@ -245,6 +245,27 @@ private:
                 lineLen_ = 0; // 溢出：丢弃该行
             }
         }
+
+        // 帧结束（USART1 空闲间隔）仍未见 '\n'：把已累积内容按一整行处理，
+        // 兼容对端不追加换行的发送方式，保证连接判定与回显可用。
+        if (lineLen_ > 0u) {
+            lineBuf_[lineLen_] = '\0';
+            onLine(lineBuf_);
+            lineLen_ = 0;
+        }
+    }
+
+    // 判定一行是否为“对端数据”（而非模块的 AT 应答/状态文本）。
+    // 依据：AT 应答均以 '+' 开头或包含 OK/VERSION/ERROR/JDY 等关键字。
+    static bool looksLikeData(const char* line) {
+        if (line[0] == '\0' || line[0] == '+') {
+            return false;
+        }
+        if (containsCi(line, "version") || containsCi(line, "ok") || containsCi(line, "error") ||
+            containsCi(line, "jdy") || containsCi(line, "at+")) {
+            return false;
+        }
+        return true;
     }
 
     // 单行分派：优先识别连接状态，其次 AT 应答，最后按已连接与否作为数据行。
@@ -259,6 +280,15 @@ private:
             atOk_ = true;
         }
         if (connected_) {
+            pushRxLine(line);
+            return;
+        }
+        // 回退：某些模块固件不输出（或无法识别）ENLOG 连接状态文本。此时若在 Idle
+        // 阶段收到一行“对端数据”，说明链路已建立（模块仅在连接时才透传对端数据），
+        // 据此判定已连接并消费该行，保证回显与状态显示可用。
+        if (phase_ == AtPhase::Idle && looksLikeData(line)) {
+            connected_ = true;
+            phase_ = AtPhase::Connected;
             pushRxLine(line);
         }
     }
@@ -317,21 +347,18 @@ private:
             break;
 
         case AtPhase::SetName:
-            if (atOk_) {
+            // 无论 AT+NAME 是否收到明确 +OK，都继续尝试开启 ENLOG（默认即为 1，
+            // 但显式下发可确保部分固件确实输出连接状态文本）。
+            if (atOk_ || nowMs() - cmdStart_ >= kAtTimeoutMs) {
                 atOk_ = false;
                 phase_ = AtPhase::EnableLog;
                 startEnableLog();
-            } else if (nowMs() - cmdStart_ >= kAtTimeoutMs) {
-                atOk_ = false;
-                phase_ = AtPhase::Idle;
             }
             break;
 
         case AtPhase::EnableLog:
-            if (atOk_) {
-                atOk_ = false;
-            }
             if (atOk_ || nowMs() - cmdStart_ >= kAtTimeoutMs) {
+                atOk_ = false;
                 phase_ = AtPhase::Idle;
             }
             break;
