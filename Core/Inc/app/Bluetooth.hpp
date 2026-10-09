@@ -102,7 +102,7 @@ public:
         return len;
     }
 
-    // TX DMA 完成中断回调（由 HAL_UART_TxCpltCallback 转发至此）。
+    // TX 完成中断回调（由 HAL_UART_TxCpltCallback 转发至此）。
     void onTxComplete() {
         if (!txBusy_) {
             return;
@@ -173,14 +173,53 @@ private:
         return enqueue(tmp, n);
     }
 
-    // 真正启动一次 DMA 发送（一次发出完整一条，字符间无间隔）。
+    // 真正启动一次发送（一次发出完整一条，字符间无间隔）。
+    // 使用中断发送：复用已使能的 USART1_IRQn（HAL_UART_IRQHandler ->
+    // HAL_UART_TxCpltCallback），不依赖 USART1 TX DMA（DMA1_Channel4 的 NVIC 中断未使能、
+    // 也无对应 IRQHandler，发送完成回调永不触发会使发送队列永久卡死）。
     void pumpTx() {
         if (txBusy_ || txHead_ == txTail_) {
             return;
         }
         txBusy_ = true;
-        HAL_UART_Transmit_DMA(
+        HAL_UART_Transmit_IT(
             &huart1, reinterpret_cast<uint8_t*>(txBuf_[txHead_]), txLen_[txHead_]);
+    }
+
+    // 小写化（仅用于状态文本的宽松匹配）。
+    static char toLower(char c) {
+        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    }
+
+    // 大小写不敏感子串查找（needle 需为小写）。
+    static bool containsCi(const char* hay, const char* needle) {
+        for (; *hay != '\0'; ++hay) {
+            const char* h = hay;
+            const char* n = needle;
+            while (*n != '\0' && *h != '\0' && toLower(*h) == *n) {
+                ++h;
+                ++n;
+            }
+            if (*n == '\0') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 依据文本判定连接状态（DISCONN 优先于 CONN）；识别到状态文本返回 true。
+    bool applyStatus(const char* s) {
+        if (containsCi(s, "disconn")) {
+            connected_ = false;
+            phase_ = AtPhase::Idle;
+            return true;
+        }
+        if (containsCi(s, "conn")) {
+            connected_ = true;
+            phase_ = AtPhase::Connected;
+            return true;
+        }
+        return false;
     }
 
     // 字节流 -> 行组装（以 '\n' 结束，忽略 '\r'）。
@@ -200,6 +239,8 @@ private:
             }
             if (lineLen_ < kLineMax - 1u) {
                 lineBuf_[lineLen_++] = static_cast<char>(c);
+                lineBuf_[lineLen_] = '\0';
+                applyStatus(lineBuf_); // 状态文本可能不带换行，边收边识别
             } else {
                 lineLen_ = 0; // 溢出：丢弃该行
             }
@@ -208,20 +249,13 @@ private:
 
     // 单行分派：优先识别连接状态，其次 AT 应答，最后按已连接与否作为数据行。
     void onLine(const char* line) {
-        if (std::strstr(line, "DISCONN") != nullptr) {
-            connected_ = false;
-            phase_ = AtPhase::Idle;
-            return;
+        if (applyStatus(line)) {
+            return; // 连接/断开状态文本不作为数据
         }
-        if (std::strstr(line, "CONN") != nullptr) {
-            connected_ = true;
-            phase_ = AtPhase::Connected;
-            return;
-        }
-        if (std::strstr(line, "VERSION") != nullptr) {
+        if (containsCi(line, "version")) {
             atReplied_ = true;
         }
-        if (std::strstr(line, "OK") != nullptr) {
+        if (containsCi(line, "ok")) {
             atOk_ = true;
         }
         if (connected_) {
