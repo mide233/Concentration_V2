@@ -44,13 +44,17 @@ public:
         drawBattery(4, static_cast<uint8_t>(topCenterY - 6), batteryLevel);
 
         uint8_t midCenterY = static_cast<uint8_t>(kMidStartY + kMidAreaHeight / 2);
-        drawBluetooth(2, static_cast<uint8_t>(midCenterY - 10), bluetoothState);
-        drawDot(static_cast<uint8_t>(kLogicWidth - 5), midCenterY, dotExist_);
+        drawBluetooth(5, static_cast<uint8_t>(midCenterY - 9), bluetoothState);
+        drawDot(static_cast<uint8_t>(kLogicWidth - 11), midCenterY - 1, false);
 
         drawProgressBar(percent, kBottomStartY, kBottomAreaHeight);
 
         rotateToPanel();
         drawText(percent);
+
+        // Todo: make a toast message area for messages
+        // drawString(38, 9, "ERRMSG", true);
+
         panel_.refresh();
     }
 
@@ -120,12 +124,12 @@ private:
 
     // 实心圆点（半径 2 像素，exist 非 0 时绘制）
     void drawDot(uint8_t x, uint8_t y, uint8_t exist) {
-        if (!exist)
-            return;
         for (int8_t dy = -2; dy <= 2; dy++)
-            for (int8_t dx = -2; dx <= 2; dx++)
-                if (dx * dx + dy * dy <= 4)
+            for (int8_t dx = -2; dx <= 2; dx++) {
+                int8_t distSq = dx * dx + dy * dy;
+                if (exist ? (distSq <= 4) : (distSq == 4))
                     drawPixel(static_cast<uint8_t>(x + dx), static_cast<uint8_t>(y + dy));
+            }
     }
 
     // 进度条（在指定区域内从下向上填充）
@@ -209,6 +213,37 @@ private:
             drawCharRotated(x, static_cast<uint8_t>(y + yOffset), *pStr++);
             yOffset = static_cast<uint8_t>(yOffset + kTextCharSpacing);
             if (yOffset + 8 > OledPanel::kHeight)
+                break;
+        }
+    }
+
+    void drawChar(uint8_t x, uint8_t y, char ch, bool reverse_color = false) {
+        if (x + 8 > OledPanel::kWidth || y + 16 > OledPanel::kHeight)
+            return;
+        uint8_t idx = glyphIndex(ch);
+        if (idx == 255)
+            return;
+
+        const uint8_t* glyph = &kFont8x16[static_cast<uint16_t>(idx) * 16u];
+        for (uint8_t row = 0; row < 16; row++) {
+            uint8_t line = glyph[row];
+            for (uint8_t col = 0; col < 8; col++) {
+                // 关键：bit 顺序反过来
+                if (line & (1u << (7 - col))) {
+                    panel_.setPixel(
+                        static_cast<uint8_t>(x + col), static_cast<uint8_t>(y + row),
+                        reverse_color);
+                }
+            }
+        }
+    }
+
+    void drawString(uint8_t x, uint8_t y, const char* str, bool reverse_color = false) {
+        uint8_t xOffset = 0;
+        while (*str) {
+            drawChar(static_cast<uint8_t>(x + xOffset), y, *str++, reverse_color);
+            xOffset = static_cast<uint8_t>(xOffset + 8); // 字宽 8，无间距
+            if (x + xOffset > OledPanel::kWidth)         // 超出右边界停止
                 break;
         }
     }

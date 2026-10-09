@@ -1640,10 +1640,13 @@ public:
     }
 
     // 物理坐标置位（超界忽略）
-    void setPixel(uint8_t x, uint8_t y) {
+    void setPixel(uint8_t x, uint8_t y, bool set_by_reverse = false) {
         if (x >= kWidth || y >= kHeight)
             return;
-        buffer_[(y / kPageBits) * kWidth + x] |= static_cast<uint8_t>(1u << (y % kPageBits));
+        if (!set_by_reverse)
+            buffer_[(y / kPageBits) * kWidth + x] |= static_cast<uint8_t>(1u << (y % kPageBits));
+        else
+            buffer_[(y / kPageBits) * kWidth + x] ^= static_cast<uint8_t>(1u << (y % kPageBits));
     }
 
 private:

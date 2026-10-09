@@ -245,8 +245,8 @@ extern "C" void App_UpdateDisplay(void) { app::g_app.updateDisplay(); }
 
 extern "C" void App_Poll(void) { app::g_app.poll(); }
 
-/* HAL 回调入口：与原先在 main.c 中的函数名/签名一致（C 链接）。 */
+/* HAL 回调入口 */
 extern "C" void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) { app::g_app.onAdcComplete(); }
 
-/* C 接缝：供 stm32f1xx_it.c（C）调用（原定义于 UartReceiver.cpp，模块头文件化后移至此处）。 */
+/* C 接缝：供 stm32f1xx_it.c 调用 */
 extern "C" void UartReceiver_HandleIdle(void) { app::g_uartReceiver.handleIdleInterrupt(); }
