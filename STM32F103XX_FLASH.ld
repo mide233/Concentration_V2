@@ -56,7 +56,9 @@ ENTRY(Reset_Handler)
 MEMORY
 {
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 20K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 64K
+/* 63K：末页 0x0800FC00-0x0800FFFF 保留给校准数据持久化（风险 R4）。
+   .scripts/patch_cubemx 会在每次 CubeMX 重新生成后强制恢复该值。 */
+FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 63K
 }
 
 /* Highest address of the user mode stack */
