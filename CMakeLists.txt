@@ -44,13 +44,9 @@ add_executable(${CMAKE_PROJECT_NAME})
 add_subdirectory(cmake/stm32cubemx)
 
 # User sources (not managed by STM32CubeMX)
+# 用户模块已头文件化（定义与声明一体，头文件仅保留常量/类定义）；
+# App.cpp 是唯一的 C++ 编译单元。
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    Core/Src/app/Persistence.cpp
-    Core/Src/app/Measurement.cpp
-    Core/Src/app/BatteryMonitor.cpp
-    Core/Src/app/Display.cpp
-    Core/Src/app/OledPanel.cpp
-    Core/Src/app/UartReceiver.cpp
     Core/Src/app/App.cpp
 )
 

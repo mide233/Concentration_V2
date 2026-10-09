@@ -3,6 +3,10 @@
 
 #include <cstdint>
 
+#include "main.h"
+
+#include "app/AppConfig.hpp"
+
 namespace app
 {
 
@@ -20,8 +24,20 @@ namespace app
     class BatteryMonitor
     {
     public:
-        void setAdc(float adc);
-        void updateStatus();
+        void setAdc(float adc)
+        { adc_ = adc; }
+
+        /* 读取 STDBY/CHRG 引脚判定充电状态（顺序沿用历史实现）。 */
+        void updateStatus()
+        {
+            if (HAL_GPIO_ReadPin(STDBY_GPIO_Port, STDBY_Pin) == GPIO_PIN_RESET) {
+                status_ = BattStatus::Standby;
+            } else if (HAL_GPIO_ReadPin(CHRG_GPIO_Port, CHRG_Pin) == GPIO_PIN_RESET) {
+                status_ = BattStatus::Charging;
+            } else {
+                status_ = BattStatus::Normal;
+            }
+        }
 
         [[nodiscard]] float adc() const
         { return adc_; }
@@ -30,7 +46,26 @@ namespace app
         [[nodiscard]] BattStatus status() const
         { return status_; }
 
-        [[nodiscard]] static int levelFor(float voltage);
+        [[nodiscard]] static int levelFor(float voltage)
+        {
+            if (voltage >= kBatteryVMax) {
+                return 5;
+            }
+            if (voltage <= kBatteryVMin) {
+                return 0;
+            }
+
+            const float ratio = (voltage - kBatteryVMin) / (kBatteryVMax - kBatteryVMin);
+            int level         = static_cast<int>(ratio * 5 + 0.5f);
+
+            if (level < 0) {
+                level = 0;
+            }
+            if (level > 5) {
+                level = 5;
+            }
+            return level;
+        }
 
     private:
         float adc_         = 0.0f;
