@@ -45,16 +45,19 @@ namespace app
         std::memset(buffer_, 0, sizeof(buffer_));
     }
 
-    // 将物理缓冲按页写入面板
+    // 将物理缓冲按页写入面板（方案 A：批量 I2C，显著减少事务数）
     void OledPanel::refresh()
     {
         for (uint8_t page = 0; page < kHeight / kPageBits; page++) {
-            writeCommand(static_cast<uint8_t>(0xB0 + page));
-            writeCommand(0x00);
-            writeCommand(0x10);
-            for (uint8_t col = 0; col < kWidth; col++) {
-                writeData(buffer_[page * kWidth + col]);
-            }
+            // 一条事务发送本页 3 个命令：控制字 0x00 之后连续字节均按命令解释
+            uint8_t cmd[4] = {0x00, static_cast<uint8_t>(0xB0 + page), 0x00, 0x10};
+            HAL_I2C_Master_Transmit(&hi2c1, kOledAddress, cmd, sizeof(cmd), kI2cTimeoutMs);
+
+            // 一条事务发送本页 128 字节显存：控制字 0x40 + 数据
+            uint8_t data[1 + kWidth];
+            data[0] = 0x40;
+            std::memcpy(&data[1], &buffer_[page * kWidth], kWidth);
+            HAL_I2C_Master_Transmit(&hi2c1, kOledAddress, data, sizeof(data), kI2cTimeoutMs);
         }
     }
 
