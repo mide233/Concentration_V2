@@ -62,7 +62,7 @@
 - 通过 **I2C1 SSD1306 OLED（128×32）** 显示电量、蓝牙状态、进度条与文本。
 - 通过 **TIM2**（1 kHz）产生 ADC 触发（CH2，TRGO=OC2REF）与 UV 灯 PWM（CH4）。
 - 通过 **USART1（9600）** 接收上位机数据帧（IDLE+DMA；收帧输出当前无消费者，见 R6）。
-- 按键/开关：`TILT=PA2`、`KEY=PA7`、`SW=PA8`；充电/待机指示 `SHDBY=PB4`、`CHRG=PB5`；负载控制 `DC_ctrl=PB8`；状态灯 `LED=PB12`。
+- 按键/开关：`TILT=PA2`、`KEY=PA7`、`SW=PA8`；充电/待机指示 `STDBY=PB4`、`CHRG=PB5`；负载控制 `DC_ctrl=PB8`；状态灯 `LED=PB12`。
 - 校准结果持久化到 Flash 末页绝对地址 `0x0800FC00`。
 
 ### 1.2 仓库结构
@@ -195,7 +195,7 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> AppData::adcValue[20]
 
 ### 2.3 控制流 / 状态机
 `app::WorkState`（`enum class : uint8_t`）：`Init, Save, Calibration, Working, Ready, ErrTilt, ErrOpen, ErrLowPower, ErrNoContainer`（数值 0..8 与原枚举一致）。
-- `App::updateWorkStatus()`（原 `CC_set_work_status`）：按状态分派，处理 `Measurement::reset`、UV 灯亮度、`dcCtrlOn/Off`、`Measurement::result`；含各错误态恢复；并用 `SHDBY/CHRG` 引脚更新 `BattStatus`（`SHDBY` 有效→Standby，否则 `CHRG` 有效→Charging，否则 Normal）。
+- `App::updateWorkStatus()`（原 `CC_set_work_status`）：按状态分派，处理 `Measurement::reset`、UV 灯亮度、`dcCtrlOn/Off`、`Measurement::result`；含各错误态恢复；并用 `STDBY/CHRG` 引脚更新 `BattStatus`（`STDBY` 有效→Standby，否则 `CHRG` 有效→Charging，否则 Normal）。
 - `App::runMeasurementTask()`：`Calibration→Measurement::calibrate`；`Working→Measurement::update`；`Save→PersistentStore::save` 后置 `Ready`；`Init→` 空操作。
 - 校准/测量计时：`Measurement::detectionTime`（`TimeUnit` 换算），达到 `onceDetectionTime`（初始化传入 `100.0f`）置 `Finished`。
 - 注释中保留的编号 `1 / 3 / 4 / 5`（缺 `2`，低电量检测块被注释）与原代码一致（见 R10）。
@@ -219,7 +219,7 @@ ADC1(PA0 光, PA1 电池) --DMA1_Ch1 循环--> AppData::adcValue[20]
 | TIM2 | PSC=71，ARR=999（1 kHz）；CH2 PWM 脉宽 500，TRGO=OC2REF；CH4 PWM 脉宽 0（UV 灯，`4*level`） |
 | USART1 | 9600 8N1，RX→DMA1_Ch5 循环字节，TX→DMA1_Ch4 单次字节，开 IDLE 中断 |
 | I2C1 | 100 kHz，7 位地址；PB6/PB7 AF_OD |
-| GPIO | TILT=PA2、KEY=PA7、SW=PA8（输入浮空）；LED=PB12（输出开漏）；SHDBY=PB4、CHRG=PB5（输入浮空）；DC_ctrl=PB8（推挽输出） |
+| GPIO | TILT=PA2、KEY=PA7、SW=PA8（输入浮空）；LED=PB12（输出开漏）；STDBY=PB4、CHRG=PB5（输入浮空）；DC_ctrl=PB8（推挽输出） |
 | SWJ | `__HAL_AFIO_REMAP_SWJ_NOJTAG()`（保留 SWD） |
 
 时钟：HSE 8 MHz 晶振（PD0/PD1）→ PLL ×9 = 72 MHz；APB1=36 M、APB2=72 M、ADC=12 M。

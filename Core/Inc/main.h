@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.h
-  * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.h
+ * @brief          : Header for main.c file.
+ *                   This file contains the common defines of the application.
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2026 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
@@ -67,8 +67,8 @@ void Error_Handler(void);
 #define LED_GPIO_Port GPIOB
 #define SW_Pin GPIO_PIN_8
 #define SW_GPIO_Port GPIOA
-#define SHDBY_Pin GPIO_PIN_4
-#define SHDBY_GPIO_Port GPIOB
+#define STDBY_Pin GPIO_PIN_4
+#define STDBY_GPIO_Port GPIOB
 #define CHRG_Pin GPIO_PIN_5
 #define CHRG_GPIO_Port GPIOB
 #define DC_ctrl_Pin GPIO_PIN_8
@@ -76,7 +76,7 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
-#define RX_BUFFER_SIZE                      256
+#define RX_BUFFER_SIZE 256
 
 /* USER CODE END Private defines */
 
