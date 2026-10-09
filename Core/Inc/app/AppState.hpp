@@ -4,7 +4,7 @@
 #include <cstdint>
 
 #include "app/BatteryMonitor.hpp"
-#include "app/InputDebounce.hpp"
+#include "app/Hardware.hpp"
 #include "app/Measurement.hpp"
 
 namespace app {
