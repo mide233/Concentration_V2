@@ -209,19 +209,24 @@ private:
         return false;
     }
 
-    // 依据文本判定连接状态（DISCONN 优先于 CONN）；识别到状态文本返回 true。
-    // 仅识别模块状态行（以 '+' 开头），避免把对端数据中恰好含 conn 的行误判。
+    // 依据文本判定连接状态（断开优先于连接）；识别到状态文本返回 true。
+    // 实测 JDY-31A V2.241（AT+ENLOG=1）ENLOG 文本：连接时先输出
+    // "+CONNECTING<<MAC"，再输出 "CONNECTED"（注意无 '+'）；断开时输出
+    // "+DISC:SUCCESS"。此处按精确（大小写不敏感）子串匹配。
     bool applyStatus(const char* s) {
-        if (s == nullptr || s[0] != '+') {
+        if (s == nullptr || s[0] == '\0') {
             return false;
         }
-        if (containsCi(s, "disconn")) {
+        // 断开指示：+DISC:SUCCESS / DISCONNECTED / +DISCONN
+        if (containsCi(s, "disconn") || containsCi(s, "disc:success") ||
+            (s[0] == '+' && containsCi(s, "disc"))) {
             connected_ = false;
             phase_ = AtPhase::Idle;
             phaseStart_ = nowMs();
             return true;
         }
-        if (containsCi(s, "conn")) {
+        // 连接指示：CONNECTED（无 '+'）/ +CONNECTING<<MAC / +CONNECT
+        if (containsCi(s, "connected") || (s[0] == '+' && containsCi(s, "conn"))) {
             connected_ = true;
             phase_ = AtPhase::Connected;
             return true;
@@ -262,20 +267,20 @@ private:
         }
     }
 
-    // 判定一行是否为“对端数据”（而非模块的 AT 应答/状态文本）。
-    // 依据：AT 应答均以 '+' 开头或包含 OK/VERSION/ERROR/JDY 等关键字。
-    static bool looksLikeData(const char* line) {
-        if (line[0] == '\0' || line[0] == '+') {
-            return false;
+    // 判定是否为模块自身的 AT 命令回显碎片（连接建立过程中模块会输出 "AT\r"，
+    // 由于按帧结束切分，可能呈现为单字符 "A"/"T" 或 "AT"）。此类碎片不是对端数据。
+    static bool isAtEcho(const char* line) {
+        if (line[0] == '\0') {
+            return true;
         }
-        if (containsCi(line, "version") || containsCi(line, "ok") || containsCi(line, "error") ||
-            containsCi(line, "jdy") || containsCi(line, "at+")) {
-            return false;
+        if (line[1] == '\0') {
+            const char c = toLower(line[0]);
+            return c == 'a' || c == 't';
         }
-        return true;
+        return line[2] == '\0' && toLower(line[0]) == 'a' && toLower(line[1]) == 't';
     }
 
-    // 单行分派：优先识别连接状态，其次 AT 应答，最后按已连接与否作为数据行。
+    // 单行分派：优先识别连接状态，其次 AT 应答，最后在已连接时作为对端数据行。
     void onLine(const char* line) {
         if (applyStatus(line)) {
             return; // 连接/断开状态文本不作为数据
@@ -286,18 +291,14 @@ private:
         if (containsCi(line, "ok")) {
             atOk_ = true;
         }
-        if (connected_) {
-            pushRxLine(line);
+        if (!connected_) {
             return;
         }
-        // 回退：某些模块固件不输出（或无法识别）ENLOG 连接状态文本。此时若在 Idle
-        // 阶段收到一行“对端数据”，说明链路已建立（模块仅在连接时才透传对端数据），
-        // 据此判定已连接并消费该行，保证回显与状态显示可用。
-        if (phase_ == AtPhase::Idle && looksLikeData(line)) {
-            connected_ = true;
-            phase_ = AtPhase::Connected;
-            pushRxLine(line);
+        // 丢弃模块自身的 AT 回显碎片，避免被当作对端数据回显。
+        if (isAtEcho(line)) {
+            return;
         }
+        pushRxLine(line);
     }
 
     // 将数据行压入接收队列（满则丢弃最新行）。
