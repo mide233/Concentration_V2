@@ -13,17 +13,12 @@
 #include "main.h"
 #include "adc.h"
 #include "tim.h"
-#include "usart.h"
 
 #include "app/AppConfig.hpp"
 #include "app/AppState.hpp"
 #include "app/Display.hpp"
 #include "app/Hardware.hpp"
-
-extern "C" {
-/* main.c 中定义的 UART 接收缓冲区（stm32f1xx_it.c 亦以 extern 引用） */
-extern uint8_t rx_dma_buffer[];
-}
+#include "app/UartReceiver.hpp"
 
 namespace app {
 namespace {
@@ -56,8 +51,7 @@ App g_app;
 void App::init()
 {
     // 启动 UART DMA 接收与空闲中断。
-    HAL_UART_Receive_DMA(&huart1, rx_dma_buffer, RX_BUFFER_SIZE);
-    __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+    g_uartReceiver.start();
 
     setUvLevel(kUvCloseLevel);
     dcCtrlOff();

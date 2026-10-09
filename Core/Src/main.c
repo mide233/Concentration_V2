@@ -59,12 +59,6 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/* UART 空闲中断收帧缓冲：stm32f1xx_it.c 通过 extern 引用。
- * 说明：收帧结果当前无消费者（R8），按决策保留其运行行为。 */
-uint8_t rx_dma_buffer[RX_BUFFER_SIZE]; // DMA 搬运数据的缓冲区
-volatile uint8_t rx_frame_ready = 0;   // 帧接收完成标志
-uint8_t rx_work_buffer[RX_BUFFER_SIZE];// 帧处理工作缓冲区
-uint16_t rx_frame_len = 0;             // 当前帧长度
 
 /* USER CODE END 0 */
 
