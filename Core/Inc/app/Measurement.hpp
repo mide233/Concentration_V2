@@ -5,10 +5,9 @@
 
 namespace app {
 
-/* 转换/校准结果；字段顺序与 Flash 持久化布局绑定，勿改。 */
 struct ConversionValue {
     float rawValue;
-    uint16_t uvLightLevel;
+    uint16_t uvLightLevel = 1;
 };
 
 /* 一次检测的状态标志（数值沿用历史约定）。 */

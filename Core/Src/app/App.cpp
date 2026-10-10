@@ -153,20 +153,11 @@ private:
             return;
         }
         switch (static_cast<HostCmd>(frame[3])) {
-        case HostCmd::Start:
-            data_.hopeStatus = WorkState::Working;
-            break;
-        case HostCmd::Calibration:
-            data_.hopeStatus = WorkState::Calibration;
-            break;
-        case HostCmd::Stop:
-            data_.hopeStatus = WorkState::Ready;
-            break;
-        case HostCmd::StatusQuery:
-            sendStatus();
-            break;
-        default:
-            break;
+        case HostCmd::Start: data_.hopeStatus = WorkState::Working; break;
+        case HostCmd::Calibration: data_.hopeStatus = WorkState::Calibration; break;
+        case HostCmd::Stop: data_.hopeStatus = WorkState::Ready; break;
+        case HostCmd::StatusQuery: sendStatus(); break;
+        default: break;
         }
     }
 
@@ -178,19 +169,6 @@ private:
             if (isError()) {
                 sendError();
             }
-        }
-
-        if (data_.workStatus == WorkState::Working
-            && data_.measurement.flag() == ConversionFlag::Finished) {
-            sendResult(data_.measurement.result()); // result() 同时将 flag 复位为 Ready
-            data_.measurement.reset();
-            endRun();
-        } else if (
-            data_.workStatus == WorkState::Calibration
-            && data_.measurement.flag() == ConversionFlag::Finished) {
-            sendCalibration();
-            data_.measurement.reset();
-            endRun();
         }
     }
 
@@ -206,8 +184,8 @@ private:
     // 组帧并通过蓝牙发送；未连接或队列满时静默丢弃。
     void sendDeviceFrame(DeviceCmd cmd, const uint8_t* payload, uint8_t payloadLen) {
         uint8_t out[kFrameMax];
-        const uint16_t n = encodeFrame(
-            static_cast<uint8_t>(cmd), payload, payloadLen, out, sizeof(out));
+        const uint16_t n =
+            encodeFrame(static_cast<uint8_t>(cmd), payload, payloadLen, out, sizeof(out));
         if (n > 0u) {
             g_bluetooth.sendBytes(out, n);
         }
@@ -285,6 +263,12 @@ private:
     }
 
     void updateWorkStatus() {
+        bool is_err_tilt = data_.input.tilt.status() == 0;
+        bool is_err_open = data_.input.sw.status() == 0;
+        bool is_err_nocontainer = data_.input.key.status() == 0;
+        bool is_err_lowpower =
+            !(data_.battery.level() > 2 || data_.battery.status() == BattStatus::Standby);
+
         switch (data_.workStatus) {
         case WorkState::Ready:
             if (data_.hopeStatus == WorkState::Working
@@ -302,15 +286,47 @@ private:
                 data_.workStatus = WorkState::Calibration;
             }
             break;
-
         case WorkState::Working:
-        case WorkState::Calibration:
-        case WorkState::ErrTilt:
-        case WorkState::ErrOpen:
-        case WorkState::ErrLowPower:
+            if (data_.hopeStatus == WorkState::Ready
+                || data_.measurement.flag() == ConversionFlag::Finished) {
+                if (data_.measurement.flag() == ConversionFlag::Finished)
+                    sendResult(data_.measurement.result());
+                else
+                    data_.workStatus = WorkState::Ready;
 
+                data_.measurement.reset();
+                endRun();
+            }
+            break;
+        case WorkState::Calibration:
+            if (data_.hopeStatus == WorkState::Ready
+                || data_.measurement.flag() == ConversionFlag::Finished) {
+                if (data_.measurement.flag() == ConversionFlag::Finished)
+                    sendCalibration();
+                else
+                    data_.workStatus = WorkState::Ready;
+
+                data_.measurement.reset();
+                endRun();
+            }
+            break;
+        case WorkState::ErrTilt:
+            if (!is_err_tilt) {
+                data_.workStatus = WorkState::Ready;
+            }
+            break;
+        case WorkState::ErrOpen:
+            if (!is_err_open) {
+                data_.workStatus = WorkState::Ready;
+            }
+            break;
+        case WorkState::ErrLowPower:
+            if (!is_err_lowpower) {
+                data_.workStatus = WorkState::Ready;
+            }
+            break;
         case WorkState::ErrNoContainer:
-            if (data_.hopeStatus == WorkState::Ready) {
+            if (!is_err_nocontainer) {
                 data_.workStatus = WorkState::Ready;
             }
             break;
@@ -318,26 +334,9 @@ private:
         default: break;
         }
 
-        bool is_err_tilt = data_.input.tilt.status() == 0;
-        bool is_err_open = data_.input.sw.status() == 0;
-        bool is_err_nocontainer = data_.input.key.status() == 0;
-        bool is_err_lowpower =
-            !(data_.battery.level() > 2 || data_.battery.status() == BattStatus::Standby);
-
-        if (data_.workStatus == WorkState::ErrLowPower && !is_err_lowpower) {
-            data_.workStatus = WorkState::Ready;
-        }
-        if (data_.workStatus == WorkState::ErrOpen && !is_err_open) {
-            data_.workStatus = WorkState::Ready;
-        }
-        if (data_.workStatus == WorkState::ErrTilt && !is_err_tilt) {
-            data_.workStatus = WorkState::Ready;
-        }
-        if (data_.workStatus == WorkState::ErrNoContainer && !is_err_nocontainer) {
-            data_.workStatus = WorkState::Ready;
-        }
-
-        if (is_err_lowpower && false) {          // Debug: 屏蔽低电量错误，便于调试
+        bool emergency_stop =
+            data_.workStatus == WorkState::Working || data_.workStatus == WorkState::Calibration;
+        if (is_err_lowpower && false) {           // Debug: 屏蔽低电量错误，便于调试
             data_.workStatus = WorkState::ErrLowPower;
             data_.msg = const_cast<char*>("LOW POW");
         } else if (is_err_tilt) {
@@ -349,6 +348,12 @@ private:
         } else if (is_err_nocontainer) {
             data_.workStatus = WorkState::ErrNoContainer;
             data_.msg = const_cast<char*>("NO CONT");
+        } else {
+            emergency_stop = false;
+        }
+        if (emergency_stop) {
+            data_.measurement.reset();
+            endRun();
         }
 
         data_.battery.updateStatus();
@@ -356,9 +361,9 @@ private:
 
     AppData data_;
     Display display_;
-    volatile bool adcPending_ = false;           // ISR 置位 / 主循环清零
-    uint16_t adcSnapshot_[kAdcSampleCount] = {}; // ISR 中的样本快照
-    uint32_t lastDisplayTick_ = 0;               // 上次显示刷新时刻（ms）
+    volatile bool adcPending_ = false;            // ISR 置位 / 主循环清零
+    uint16_t adcSnapshot_[kAdcSampleCount] = {};  // ISR 中的样本快照
+    uint32_t lastDisplayTick_ = 0;                // 上次显示刷新时刻（ms）
     WorkState reportedStatus_ = WorkState::Ready; // 上次上报给上位机的工作状态
 };
 
