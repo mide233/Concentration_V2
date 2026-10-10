@@ -48,6 +48,19 @@ public:
     [[nodiscard]] int level() const { return level_; }
     [[nodiscard]] BattStatus status() const { return status_; }
 
+    /* 电池电量百分比（0..100），按 (V-Vmin)/(Vmax-Vmin) 线性映射并限幅。 */
+    [[nodiscard]] int percent() const {
+        const float voltage = this->voltage();
+        float ratio = (voltage - kBatteryVMin) / (kBatteryVMax - kBatteryVMin);
+        if (ratio < 0.0f) {
+            ratio = 0.0f;
+        }
+        if (ratio > 1.0f) {
+            ratio = 1.0f;
+        }
+        return static_cast<int>(ratio * 100.0f + 0.5f);
+    }
+
     [[nodiscard]] static int levelFor(float voltage) {
         if (voltage >= kBatteryVMax) {
             return 5;

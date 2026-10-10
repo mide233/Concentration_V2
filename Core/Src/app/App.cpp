@@ -230,7 +230,7 @@ private:
         const uint8_t payload[4] = {
             static_cast<uint8_t>(data_.workStatus),
             data_.progress,
-            static_cast<uint8_t>(data_.battery.level()),
+            static_cast<uint8_t>(data_.battery.percent()),
             static_cast<uint8_t>(g_bluetooth.connected() ? 1u : 0u),
         };
         sendDeviceFrame(DeviceCmd::Status, payload, sizeof(payload));
@@ -256,14 +256,7 @@ private:
             /* 电池百分比：(V-Vmin)/(Vmax-Vmin)*100，仅在充电/待机时刷新；
                非充电/待机（Normal）时保持上次值（沿用历史行为）。 */
             if (data_.battery.status() != BattStatus::Normal) {
-                const float voltage = data_.battery.voltage();
-                float percent = (voltage - kBatteryVMin) / (kBatteryVMax - kBatteryVMin) * 100.0f;
-                if (percent < 0.0f) {
-                    percent = 0.0f;
-                } else if (percent > 100.0f) {
-                    percent = 100.0f;
-                }
-                data_.progress = static_cast<uint8_t>(percent);
+                data_.progress = static_cast<uint8_t>(data_.battery.percent());
             }
 
             if (data_.battery.status() == BattStatus::Charging)
