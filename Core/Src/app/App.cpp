@@ -253,7 +253,18 @@ private:
             else
                 data_.msg = const_cast<char*>("WORK");
         } else if (!isError()) {
-            data_.progress = static_cast<uint8_t>(data_.battery.adc() / kBatteryVMax * 100);
+            /* 电池百分比：(V-Vmin)/(Vmax-Vmin)*100，仅在充电/待机时刷新；
+               非充电/待机（Normal）时保持上次值（沿用历史行为）。 */
+            if (data_.battery.status() != BattStatus::Normal) {
+                const float voltage = data_.battery.voltage();
+                float percent = (voltage - kBatteryVMin) / (kBatteryVMax - kBatteryVMin) * 100.0f;
+                if (percent < 0.0f) {
+                    percent = 0.0f;
+                } else if (percent > 100.0f) {
+                    percent = 100.0f;
+                }
+                data_.progress = static_cast<uint8_t>(percent);
+            }
 
             if (data_.battery.status() == BattStatus::Charging)
                 data_.msg = const_cast<char*>("CHARGE");

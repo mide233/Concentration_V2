@@ -20,6 +20,13 @@ inline constexpr std::uint16_t kAdcBatChannel = 1; // 电池分压
 inline constexpr float kBatteryVMax = 4.2f;
 inline constexpr float kBatteryVMin = 3.0f;
 
+/* ADC 采样换算（硬件相关，可配置）：
+ *   V_PA1 = adcRaw * kAdcVref / kAdcFullScale
+ *   V_bat = V_PA1 / kBatteryDivider      （kBatteryDivider：分压系数，V_PA1 = V_bat * k） */
+inline constexpr float kAdcVref = 3.3f;         // ADC 参考电压 VDDA（V）
+inline constexpr float kAdcFullScale = 4095.0f;  // 12 位满量程
+inline constexpr float kBatteryDivider = 0.5f;   // PA1 电池分压系数 k
+
 /* 检测 / 校准参数 */
 inline constexpr float kDetectionDeltaTime = 10.0f; // 每次迭代的时间步（原 DETECTION_TIME）
 inline constexpr float kOnceDetectionTime = 100.0f; // 一次检测所需时间

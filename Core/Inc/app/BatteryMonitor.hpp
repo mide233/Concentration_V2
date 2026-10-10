@@ -18,13 +18,14 @@ enum class BattStatus : uint8_t {
 
 /*
  * 电池电压与充电状态。
- * levelFor() 为纯换算；level_ 沿用历史行为（从不由采样自动更新，恒为初值 0）。
+ * adc_ 保存电池通道的 ADC 原始值；voltage() 将其换算为电池电压（V）；
+ * updateStatus() 在判定充电状态的同时刷新电量等级 level_（levelFor）。
  */
 class BatteryMonitor {
 public:
     void setAdc(float adc) { adc_ = adc; }
 
-    /* 读取 STDBY/CHRG 引脚判定充电状态（顺序沿用历史实现）。 */
+    /* 读取 STDBY/CHRG 引脚判定充电状态（顺序沿用历史实现），并刷新电量等级。 */
     void updateStatus() {
         if (HAL_GPIO_ReadPin(STDBY_GPIO_Port, STDBY_Pin) == GPIO_PIN_RESET) {
             status_ = BattStatus::Standby;
@@ -33,9 +34,17 @@ public:
         } else {
             status_ = BattStatus::Normal;
         }
+
+        level_ = levelFor(voltage());
     }
 
     [[nodiscard]] float adc() const { return adc_; }
+
+    /* 由 ADC 原始值换算的电池电压（V）：先得 PA1 引脚电压，再按分压系数还原。 */
+    [[nodiscard]] float voltage() const {
+        return adc_ * kAdcVref / kAdcFullScale / kBatteryDivider;
+    }
+
     [[nodiscard]] int level() const { return level_; }
     [[nodiscard]] BattStatus status() const { return status_; }
 
