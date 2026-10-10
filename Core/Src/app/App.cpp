@@ -271,9 +271,9 @@ private:
         if (data_.workStatus == WorkState::Calibration || data_.workStatus == WorkState::Working) {
             data_.progress = static_cast<uint8_t>(data_.measurement.detectionTime());
             if (data_.workStatus == WorkState::Calibration)
-                data_.msg = const_cast<char*>("WORK");
-            else
                 data_.msg = const_cast<char*>("CALI");
+            else
+                data_.msg = const_cast<char*>("WORK");
         } else if (!isError()) {
             data_.progress = static_cast<uint8_t>(data_.battery.adc() / kBatteryVMax * 100);
 
